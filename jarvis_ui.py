@@ -2,10 +2,34 @@ import sys
 import os
 import asyncio
 
+# Fix print() crashing in pythonw by redirecting to a log file
+log_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "jarvis.log")
+log_file = open(log_path, "a", encoding="utf-8")
+
+class LogStream:
+    def write(self, text):
+        try:
+            log_file.write(text)
+            log_file.flush()
+        except:
+            pass
+    def flush(self):
+        try:
+            log_file.flush()
+        except:
+            pass
+    def isatty(self):
+        return False
+
+if sys.stdout is None:
+    sys.stdout = LogStream()
+if sys.stderr is None:
+    sys.stderr = LogStream()
+
 from PySide6.QtWidgets import QApplication, QMainWindow, QSystemTrayIcon, QMenu
 from PySide6.QtWebEngineWidgets import QWebEngineView
 from PySide6.QtWebChannel import QWebChannel
-from PySide6.QtCore import QObject, Slot, Signal, Qt, QUrl
+from PySide6.QtCore import QObject, Slot, Signal, Qt, QUrl, QTimer
 from PySide6.QtGui import QColor, QIcon, QAction, QPixmap
 
 import qasync
@@ -25,6 +49,10 @@ class BackendBridge(QObject):
     def receive_input(self, text):
         print(f"[UI] Input received: {text}")
         if self.engine and self.engine.loop:
+            # Artificially prepend the wake word so text commands process instantly, UNLESS we are already actively listening/taking notes
+            if not self.engine.detect_wake_word(text.lower()):
+                if not getattr(self.engine, 'is_active', False) and not getattr(self.engine, 'notes_mode', False):
+                    text = f"{self.engine.wake_word} {text}"
             self.engine.loop.call_soon_threadsafe(self.engine.queue.put_nowait, text)
 
     @Slot()
@@ -53,6 +81,13 @@ class BackendBridge(QObject):
                         mask = mask.united(QRegion(int(r['x']), int(r['y']), int(r['w']), int(r['h']), QRegion.Ellipse))
                     else:
                         mask = mask.united(QRegion(int(r['x']), int(r['y']), int(r['w']), int(r['h']), QRegion.Rectangle))
+                
+                # If the mask is empty, passing it to setMask actually REMOVES the mask in Qt,
+                # which causes the transparent window to block all clicks. 
+                # Fix: provide a 1x1 dummy region off-screen.
+                if mask.isEmpty():
+                    mask = QRegion(-1, -1, 1, 1)
+                    
                 self.window.setMask(mask)
             except Exception as e:
                 print(f"Mask update error: {e}")
@@ -72,6 +107,11 @@ class TransparentWindow(QMainWindow):
         # Frameless, stay on top, tool window (no taskbar)
         self.setWindowFlags(Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Tool)
         self.setAttribute(Qt.WA_TranslucentBackground, True)
+        
+        # Force keep-on-top timer to prevent glitching behind apps
+        self.top_timer = QTimer(self)
+        self.top_timer.timeout.connect(self.raise_)
+        self.top_timer.start(500)
         
         # Resize and position full screen
         screen = QApplication.primaryScreen().geometry()
@@ -96,9 +136,14 @@ class TransparentWindow(QMainWindow):
         
         # System Tray
         self.tray = QSystemTrayIcon(self)
-        pixmap = QPixmap(32, 32)
-        pixmap.fill(QColor("cyan")) # Placeholder icon
-        self.tray.setIcon(QIcon(pixmap))
+        icon_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "jarvis.ico")
+        if os.path.exists(icon_path):
+            self.tray.setIcon(QIcon(icon_path))
+            self.setWindowIcon(QIcon(icon_path))
+        else:
+            pixmap = QPixmap(32, 32)
+            pixmap.fill(QColor("cyan")) # Placeholder icon
+            self.tray.setIcon(QIcon(pixmap))
         
         menu = QMenu()
         show_action = QAction("Show UI", self)
@@ -114,11 +159,19 @@ class TransparentWindow(QMainWindow):
         self.tray.setContextMenu(menu)
         self.tray.show()
 
+    @Slot()
     def show_ui(self):
-        self.show()
+        self.browser.page().runJavaScript("""
+            document.getElementById('hud-container').style.display = 'flex';
+            if (typeof sendMaskUpdate === 'function') sendMaskUpdate();
+        """)
 
+    @Slot()
     def hide_ui(self):
-        self.hide()
+        self.browser.page().runJavaScript("""
+            document.getElementById('hud-container').style.display = 'none';
+            if (typeof sendMaskUpdate === 'function') sendMaskUpdate();
+        """)
         
     def quit_app(self):
         QApplication.quit()
@@ -163,7 +216,12 @@ if __name__ == "__main__":
     os.environ["QT_AUTO_SCREEN_SCALE_FACTOR"] = "1"
     os.environ["QT_ENABLE_HIGHDPI_SCALING"] = "0"
     
+    # Allow high refresh rate monitors (144Hz/240Hz) by disabling Chromium's artificial 60fps cap
+    os.environ["QTWEBENGINE_CHROMIUM_FLAGS"] = "--disable-frame-rate-limit"
+    
     app = QApplication(sys.argv)
+    app.setApplicationName("Jarvis")
+    app.setApplicationDisplayName("Jarvis")
     loop = qasync.QEventLoop(app)
     asyncio.set_event_loop(loop)
     

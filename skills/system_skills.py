@@ -72,6 +72,76 @@ def execute_skill(intent_name, text=""):
             return "__CONFIRM__shutdown_pc__Are you sure you want to shut down the computer?"
         return "Which power action did you want me to perform?"
 
+    elif intent_name == "wifi_action":
+        if "off" in text.lower() or "disable" in text.lower() or "disconnect" in text.lower():
+            os.system("netsh wlan disconnect")
+            return "I have disconnected your active Wi-Fi connection, sir."
+        elif "on" in text.lower() or "enable" in text.lower() or "connect" in text.lower():
+            return "I cannot dynamically select a Wi-Fi network to connect to, please connect manually."
+        return "Did you want me to turn the Wi-Fi on or off?"
+
+    elif intent_name == "open_settings":
+        os.system("start ms-settings:")
+        return "Opening Windows Settings, sir."
+        
+    elif intent_name == "open_task_manager":
+        os.system("start taskmgr")
+        return "Opening Task Manager, sir."
+        
+    elif intent_name == "open_control_panel":
+        os.system("start control")
+        return "Opening Control Panel, sir."
+        
+    elif intent_name == "clear_clipboard":
+        os.system("echo off | clip")
+        return "Clipboard cleared, sir."
+
+    elif intent_name == "flush_dns":
+        os.system("ipconfig /flushdns")
+        return "DNS cache has been successfully flushed, sir."
+
+    elif intent_name == "clear_temp_files":
+        import tempfile
+        temp_dir = tempfile.gettempdir()
+        os.system(f"del /q /f /s \"{temp_dir}\\*\" >nul 2>&1")
+        return "Temporary files and system cache have been cleared, sir."
+
+    elif intent_name == "kill_task":
+        import re
+        match = re.search(r'(?:force close|kill|terminate|force quit|end task|kill the process)\s+(.+)', text.lower())
+        if match:
+            app_name = match.group(1).strip()
+            app_name = re.sub(r'\s+(?:task|process|app)$', '', app_name).strip()
+            os.system(f"taskkill /F /IM {app_name}.exe /T >nul 2>&1")
+            return f"I have forcefully terminated the {app_name} process tree, sir."
+        return "Which application would you like me to force close?"
+
+    elif intent_name == "theme_toggle":
+        if "dark" in text.lower():
+            val = 0
+            mode = "Dark"
+        elif "light" in text.lower():
+            val = 1
+            mode = "Light"
+        else:
+            return "Did you want dark mode or light mode?"
+            
+        ps_cmd = f"New-ItemProperty -Path HKCU:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize -Name AppsUseLightTheme -Value {val} -Type Dword -Force; New-ItemProperty -Path HKCU:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize -Name SystemUsesLightTheme -Value {val} -Type Dword -Force"
+        os.system(f'powershell -Command "{ps_cmd}"')
+        return f"Switched the Windows system theme to {mode} mode, sir."
+
+    elif intent_name == "set_brightness":
+        import re
+        match = re.search(r'(\d+)', text.lower())
+        if match:
+            level = int(match.group(1))
+            if level < 0: level = 0
+            if level > 100: level = 100
+            ps_cmd = f"(Get-WmiObject -Namespace root/wmi -Class WmiMonitorBrightnessMethods).WmiSetBrightness(1,{level})"
+            os.system(f'powershell -Command "{ps_cmd}"')
+            return f"Screen brightness set to {level} percent. Note that this may only apply to built-in laptop displays."
+        return "What percentage should I set the brightness to?"
+
     elif intent_name == "minimize_windows":
         import pyautogui
         pyautogui.hotkey('win', 'd')

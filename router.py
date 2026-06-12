@@ -27,6 +27,17 @@ class Gatekeeper:
         self.ignore_route = Route(name="ignore_action", utterances=[
             'nevermind', 'ignore that', 'cancel that', 'forget it', 'never mind', 'nothing', "doesn't matter"
         ])
+        
+        # Sleep
+        self.sleep_route = Route(name="sleep_action", utterances=[
+            'jarvis', 'stop', 'quiet', 'shut up', 'uhh', 'umm', 'stop speaking', 'shh', 'be quiet', 
+            'enough', 'stop talking', 'wait', 'hold on', 'pause', 'abort', "don't worry about it", 
+            'nevermind jarvis', 'stop it', 'stop jarvis', 'skip', 'mute', 'unmute', 'volume zero', 
+            'silence', 'shut your mouth', 'zip it', 'button it', 'put a sock in it', 'give it a rest', 
+            'take a break', 'stop right there', 'halt', 'cease', 'desist', 'drop it', 'let it go', 
+            'clear', 'reset', 'say again', 'pardon', 'huh', 'eh', 'come again', 'speak up', 'hmm', 
+            'ah', 'uh huh', 'um hmm'
+        ])
         self.minimize_windows_route = Route(name="minimize_windows", utterances=['can you go to desktop', 'can you clear the screen', 'show the desktop', 'quickly minimize windows', 'clear the screen', 'can you get rid of these windows', 'quickly hide everything', 'please show the desktop', 'quickly show the desktop', 'can you minimize all windows', 'please get rid of these windows', 'quickly clear the screen', 'quickly minimize all windows', 'please show my wallpaper', 'minimize windows', 'can you minimize windows', 'can you show my wallpaper', 'minimize my apps', 'can you hide everything', 'hide all windows', 'minimize all windows', 'go to desktop', 'quickly minimize my apps', 'quickly get rid of these windows', 'quickly go to desktop', 'please clear the screen', 'please hide all windows', 'can you minimize my apps', 'can you show the desktop', 'hide everything', 'show my wallpaper', 'please go to desktop', 'please minimize all windows', 'quickly show my wallpaper', 'please hide everything', 'can you hide all windows', 'quickly hide all windows', 'get rid of these windows', 'please minimize windows', 'please minimize my apps'])
         self.close_window_route = Route(name="close_window", utterances=['quit this program', 'please quit the active program', 'please exit this screen', 'jarvis terminate this app', 'can you close this window', 'terminate this app', 'close the active window', 'please exit the app', 'can you exit the app', 'quit the active program', 'exit the app', 'jarvis close the active window', 'close what i am looking at', 'can you quit this program', 'please quit this program', 'jarvis close the current app', 'can you exit this screen', 'can you quit the active program', 'can you close what i am looking at', 'jarvis close what i am looking at', 'jarvis quit the active program', 'please shut this window', 'jarvis quit this program', 'please terminate this app', 'please close the current app', 'jarvis close this window', 'jarvis exit the app', 'jarvis exit this screen', 'can you shut this window', 'jarvis shut this window', 'please close what i am looking at', 'close this window', 'please close this window', 'exit this screen', 'can you close the current app', 'close the current app', 'can you close the active window', 'can you terminate this app', 'shut this window', 'please close the active window'])
         self.screenshot_route = Route(name="take_screenshot", utterances=["take a screenshot", "screenshot the screen", "capture the screen"])
@@ -46,6 +57,21 @@ class Gatekeeper:
         self.empty_trash_route = Route(name="empty_trash", utterances=['empty recycling', 'jarvis empty out the bin', 'please empty out the bin', 'jarvis clear the recycle bin', 'can you clear my garbage', 'jarvis wipe the recycle bin', 'can you clear the recycle bin', 'jarvis empty the recycle bin', 'empty the trash', 'clear my garbage', 'can you purge the trash', 'jarvis empty recycling', 'can you empty recycling', 'jarvis clean the trash', 'clear the recycle bin', 'please purge the trash', 'please delete the trash', 'please wipe the recycle bin', 'jarvis delete the trash', 'empty the recycle bin', 'please clear my garbage', 'can you empty the recycle bin', 'jarvis purge the trash', 'wipe the recycle bin', 'jarvis clear my garbage', 'please empty recycling', 'can you wipe the recycle bin', 'purge the trash', 'clean the trash', 'please clean the trash', 'can you empty out the bin', 'can you clean the trash', 'jarvis empty the trash', 'empty out the bin', 'can you empty the trash', 'please clear the recycle bin', 'can you delete the trash', 'delete the trash', 'please empty the recycle bin', 'please empty the trash'])
         self.open_folder_route = Route(name="open_folder", utterances=['please navigate to downloads', 'please go to my desktop folder', 'i want to open my stuff', 'i want to open my downloads', 'open my downloads', 'show documents', 'i want to open my music', 'please open pictures folder', 'can you show documents', 'can you open pictures folder', 'can you open my music', 'i want to show documents', 'can you open my downloads', 'navigate to downloads', 'can you show my files', 'please show my files', 'please open my music', 'i want to show my files', 'go to my desktop folder', 'i want to go to my desktop folder', 'please show documents', 'open the videos', 'please open the videos', 'please open file explorer', 'open pictures folder', 'i want to open file explorer', 'open file explorer', 'can you open file explorer', 'please open my downloads', 'can you go to my desktop folder', 'can you open the videos', 'can you navigate to downloads', 'show my files', 'open my music', 'open my stuff', 'please open my stuff', 'i want to open the videos', 'i want to navigate to downloads', 'can you open my stuff', 'i want to open pictures folder'])
         self.type_text_route = Route(name="type_text", utterances=['type this down', 'i want you to type this down', 'insert this text', 'input this text', 'type exactly this', 'write this on the screen', 'can you type the following', 'can you type this down', 'i want you to type the following', 'i want you to type what i say', 'please insert this text', 'i want you to type exactly this', 'please type what i say', 'please type exactly this', 'write this text', 'i want you to write this text', 'can you input this text', 'can you type what i say', 'please type the following', 'can you write this on the screen', 'please type this out', 'type the following', 'please type this down', 'can you type this out', 'type this out', 'i want you to input this text', 'can you insert this text', 'can you write this text', 'i want you to dictate this for me', 'dictate this for me', 'i want you to write this on the screen', 'can you type exactly this', 'please write this text', 'please write this on the screen', 'i want you to type this out', 'please dictate this for me', 'can you dictate this for me', 'type what i say', 'i want you to insert this text', 'please input this text'])
+        self.wifi_action_route = Route(name="wifi_action", utterances=["turn off wifi", "disable wifi", "disconnect from wifi", "turn off the internet", "turn on wifi", "enable wifi", "connect to wifi", "turn on the internet"])
+        
+        # Windows OS Controls
+        self.open_settings_route = Route(name="open_settings", utterances=["open settings", "open windows settings", "show me settings", "go to settings"])
+        self.open_task_manager_route = Route(name="open_task_manager", utterances=["open task manager", "show running processes", "task manager", "check task manager", "show processes", "bring up task manager"])
+        self.open_control_panel_route = Route(name="open_control_panel", utterances=["open control panel", "control panel", "show control panel"])
+        self.clear_clipboard_route = Route(name="clear_clipboard", utterances=["clear my clipboard", "empty clipboard", "clear the clipboard", "wipe clipboard", "erase my clipboard"])
+        
+        # Deep Windows Controls
+        self.flush_dns_route = Route(name="flush_dns", utterances=["flush dns", "reset the dns cache", "clear the dns cache", "flush my network dns", "reset my network connection"])
+        self.clear_temp_route = Route(name="clear_temp_files", utterances=["clear temporary files", "clean my system cache", "delete temp files", "empty my temp folder", "clean up my temporary files", "clear windows cache"])
+        self.kill_task_route = Route(name="kill_task", utterances=["force close chrome", "kill notepad task", "terminate discord", "force quit spotify", "end task visual studio", "kill the process", "force close this application"])
+        self.theme_toggle_route = Route(name="theme_toggle", utterances=["turn on dark mode", "enable dark mode", "switch to light mode", "turn on light theme", "enable dark theme", "change windows to dark mode"])
+        self.set_brightness_route = Route(name="set_brightness", utterances=["set brightness to 50", "change screen brightness to 100", "turn down the brightness to 20", "make the screen brightness 70 percent"])
+
 
         # Generalized Apps & Search
         self.open_website_route = Route(name="open_website", utterances=[
@@ -78,7 +104,9 @@ class Gatekeeper:
             self.open_app_route, self.search_web_route, self.youtube_route, self.coding_route,
             self.wikipedia_route, self.timer_route, self.math_route, self.joke_route, 
             self.date_route, self.whatsapp_route, self.call_route, self.writer_route,
-            self.focus_window_route, self.ignore_route
+            self.focus_window_route, self.ignore_route, self.sleep_route, self.wifi_action_route,
+            self.open_settings_route, self.open_task_manager_route, self.open_control_panel_route, self.clear_clipboard_route,
+            self.flush_dns_route, self.clear_temp_route, self.kill_task_route, self.theme_toggle_route, self.set_brightness_route
         ]
         
         self.router = SemanticRouter(encoder=self.encoder, routes=self.routes, auto_sync="local")
@@ -94,6 +122,9 @@ class Gatekeeper:
             
             if decision.name == "ignore_action":
                 return "__IGNORE__"
+            
+            if decision.name == "sleep_action":
+                return "__SLEEP__"
                 
             # Pass text to execute_skill for regex extraction
             res = system_skills.execute_skill(decision.name, text)

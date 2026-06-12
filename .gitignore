@@ -4,3 +4,9 @@ __pycache__/
 .env
 voice_print.pt
 silero_vad.onnx
+*.exe
+*.ico
+*.log
+pi_1million.txt
+pi_million.py
+deps.txt

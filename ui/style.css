@@ -46,6 +46,7 @@ body, html {
     text-shadow: 0 0 10px rgba(0, 255, 255, 0.5);
     margin-bottom: 25px;
     font-weight: 300;
+    transition: color 1s ease-in-out, text-shadow 1s ease-in-out;
 }
 
 #response-box {
@@ -101,6 +102,12 @@ body, html {
     font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
     user-select: text;
     -webkit-user-select: text;
+    resize: none;
+    overflow-y: auto;
+    min-height: 22px;
+    max-height: 120px;
+    line-height: 22px;
+    padding: 0;
 }
 
 #chat-input::placeholder {
@@ -139,11 +146,12 @@ body, html {
 
 #history-modal {
     position: absolute;
-    top: 50%;
-    left: 50%;
-    transform: translate(-50%, -50%);
+    top: calc(50% - 200px);
+    left: calc(50% - 300px);
     width: 600px;
     height: 400px;
+    resize: both;
+    overflow: hidden;
     background: rgba(10, 15, 20, 0.6);
     backdrop-filter: blur(25px);
     -webkit-backdrop-filter: blur(25px);

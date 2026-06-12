@@ -2,6 +2,7 @@ import asyncio
 import concurrent.futures
 import time
 import re
+import os
 import sounddevice as sd
 import numpy as np
 from stt import SpeechToText
@@ -103,10 +104,9 @@ class VoiceEngine:
     def __init__(self, debug=False, ui_mode=False):
         self.debug = debug
         self.ui_mode = ui_mode
-        if self.debug:
-            print("[DEBUG] Initializing STT Engine with volume debugging...")
-        self.stt = SpeechToText(debug_volume=self.debug)
-        self.stt.on_partial = self.stt_partial_callback
+        self.stt = None
+        self.tts = None
+        self.gatekeeper = None
         
         # Boot persistent OpenCode Console in background (hidden)
         import subprocess
@@ -117,9 +117,6 @@ class VoiceEngine:
             shell=True,
             creationflags=creationflags
         )
-        
-        self.tts = TextToSpeech()
-        self.gatekeeper = Gatekeeper()
         self.queue = asyncio.Queue(maxsize=20)
         self.executor = concurrent.futures.ThreadPoolExecutor(max_workers=3)
         self.current_task = None
@@ -152,8 +149,9 @@ class VoiceEngine:
     # ---------- CALLBACK ----------
 
     def stt_partial_callback(self, text):
-        if not self.is_active: return
-        self._set_ui_state("listening", f'"{text}"')
+        if self.ui_state in ["idle", "listening"]:
+            if self.is_active or self.detect_wake_word(text) or self.notes_mode:
+                self._set_ui_state("listening", f'"{text}"')
 
     def stt_callback(self, text):
         if not self.loop:
@@ -292,7 +290,15 @@ class VoiceEngine:
 
         # Check local intent via Semantic Router
         local_response = self.gatekeeper.route_command(clean_text)
+        
         if local_response == "__IGNORE__":
+            self._set_ui_state("idle", "ONLINE")
+            return
+            
+        if local_response == "__SLEEP__":
+            self.is_active = False
+            self._set_ui_state("idle", "ONLINE")
+            print("System going back to sleep...")
             return
 
         if local_response is None or local_response == "__CODING__":
@@ -406,6 +412,17 @@ class VoiceEngine:
     async def run(self):
         print("Initializing Jarvis Voice Interface...")
         self.loop = asyncio.get_running_loop()
+        
+        # Move heavy loading to a background thread so UI can appear immediately
+        def _load_models():
+            print("[System] Loading Voice Engine Models in background...")
+            self.gatekeeper = Gatekeeper()
+            self.tts = TextToSpeech()
+            self.stt = SpeechToText(debug_volume=self.debug)
+            self.stt.on_partial = self.stt_partial_callback
+            
+        print("\n--- Background Model Loading ---")
+        await self.loop.run_in_executor(self.executor, _load_models)
 
         print("\n--- Audio Setup ---")
 
@@ -443,9 +460,12 @@ class VoiceEngine:
                 from agent_runner import run_opencode_task
                 response = await run_opencode_task("System startup complete. Please give a very short, 1-sentence greeting indicating you are online and ready, sir.")
                 print(f"Jarvis: {response}")
+                self._set_ui_state("speaking", response)
                 await self.loop.run_in_executor(self.executor, self.tts.speak, response)
+                self._set_ui_state("idle", "ONLINE")
             except Exception as e:
                 print(f"[System] LLM Warmup failed: {e}")
+                self._set_ui_state("idle", "ONLINE")
 
         asyncio.create_task(_warmup_and_greet())
 
@@ -466,18 +486,52 @@ class VoiceEngine:
                         self.notes_mode = False
 
                         print("\n[!] Exiting notes mode")
+                        
+                        if getattr(self, 'current_note_buffer', '').strip():
+                            notes_content = self.current_note_buffer.strip()
+                            self._set_ui_state("thinking", "SAVING NOTE...")
+                            try:
+                                from agent_runner import run_opencode_task
+                                prompt = f"Generate a short 1 to 4 word file name for the following notes. Output ONLY the file name without any extension or punctuation. Notes: {notes_content[:500]}"
+                                filename_res = await run_opencode_task(prompt)
+                                
+                                filename = re.sub(r'[^a-zA-Z0-9_\- ]', '', filename_res.strip())
+                                if not filename:
+                                    filename = "Untitled Note"
+                                filename = filename.replace(' ', '_') + ".txt"
+                                
+                                notes_dir = r"C:\users\goldleom\jarvis-voice-engine\jarvis_notes"
+                                os.makedirs(notes_dir, exist_ok=True)
+                                filepath = os.path.join(notes_dir, filename)
+                                
+                                with open(filepath, "w", encoding="utf-8") as f:
+                                    f.write(notes_content)
+                                    
+                                exit_msg = f"I have saved your notes as {filename.replace('_', ' ').replace('.txt', '')}."
+                            except Exception as e:
+                                print(f"Error saving note: {e}")
+                                exit_msg = "Exiting notes mode, sir. I encountered an error saving the file."
+                        else:
+                            exit_msg = "Exiting notes mode, sir. No notes were recorded."
+
                         try:
                             await asyncio.wait_for(
-                                self.loop.run_in_executor(self.executor, self.tts.speak, "Exiting notes mode, sir."),
-                                timeout=10
+                                self.loop.run_in_executor(self.executor, self.tts.speak, exit_msg),
+                                timeout=15
                             )
                         except:
                             pass
+                        
+                        self._set_ui_state("idle", "ONLINE")
+                        self.current_note_buffer = ""
                         self.queue.task_done()
                         continue
                     else:
                         import pyautogui
                         pyautogui.write(text + " ", interval=0.01)
+                        if not hasattr(self, 'current_note_buffer'):
+                            self.current_note_buffer = ""
+                        self.current_note_buffer += text + " "
                         self.queue.task_done()
                         continue
 
@@ -538,6 +592,9 @@ class VoiceEngine:
             text = entry.get().strip()
             if text and self.loop and not self.loop.is_closed():
                 try:
+                    if not self.detect_wake_word(text.lower()):
+                        if not getattr(self, 'is_active', False) and not getattr(self, 'notes_mode', False):
+                            text = f"{self.wake_word} {text}"
                     self.loop.call_soon_threadsafe(self.queue.put_nowait, text)
                 except Exception:
                     pass

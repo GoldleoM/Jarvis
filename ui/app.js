@@ -1,9 +1,13 @@
 // --- Three.js Setup (Glowing Orb) ---
 let backendState = 'idle';
 let scene, camera, renderer, orb, material, light;
-let orbSpeed = 0.005;
+let orbSpeed = 0.001;
+let targetOrbSpeed = 0.001;
 let orbScale = 1.0;
 let targetScale = 1.0;
+let targetColor = new THREE.Color(0x00ffff);
+let targetEmissive = new THREE.Color(0x0088ff);
+let targetLight = new THREE.Color(0x00ffff);
 let webGLSupported = false;
 
 try {
@@ -35,11 +39,17 @@ try {
     function animate() {
         requestAnimationFrame(animate);
         
+        orbSpeed += (targetOrbSpeed - orbSpeed) * 0.05;
         orb.rotation.x += orbSpeed;
         orb.rotation.y += orbSpeed;
         
-        orbScale += (targetScale - orbScale) * 0.1;
+        orbScale += (targetScale - orbScale) * 0.05;
         orb.scale.set(orbScale, orbScale, orbScale);
+
+        // Smoothly interpolate colors
+        material.color.lerp(targetColor, 0.05);
+        material.emissive.lerp(targetEmissive, 0.05);
+        light.color.lerp(targetLight, 0.05);
 
         if (backendState === 'listening' || backendState === 'speaking') {
             const time = Date.now() * 0.01;
@@ -61,6 +71,13 @@ const statusText = document.getElementById('status-text');
 const cancelBtn = document.getElementById('cancel-btn');
 const chatInput = document.getElementById('chat-input');
 const responseBox = document.getElementById('response-box');
+
+// --- Auto-resize Textarea ---
+chatInput.addEventListener('input', function() {
+    this.style.height = 'auto';
+    this.style.height = this.scrollHeight + 'px';
+    sendMaskUpdate();
+});
 
 // --- Fade & Typewriter Variables ---
 let fadeTimeout = null;
@@ -155,29 +172,29 @@ function updateState(newState, text = "") {
     backendState = newState;
     if (webGLSupported) {
         if (newState === 'idle') {
-            material.color.setHex(0x00ffff);
-            material.emissive.setHex(0x0088ff);
-            light.color.setHex(0x00ffff);
-            orbSpeed = 0.005;
+            targetColor.setHex(0x00ffff);
+            targetEmissive.setHex(0x0088ff);
+            targetLight.setHex(0x00ffff);
+            targetOrbSpeed = 0.001;
             targetScale = 1.0;
         } else if (newState === 'listening') {
-            material.color.setHex(0x00ffaa);
-            material.emissive.setHex(0x00aa55);
-            light.color.setHex(0x00ffaa);
-            orbSpeed = 0.02;
-            targetScale = 1.2;
+            targetColor.setHex(0x00ffaa);
+            targetEmissive.setHex(0x00aa55);
+            targetLight.setHex(0x00ffaa);
+            targetOrbSpeed = 0.004;
+            targetScale = 1.15;
         } else if (newState === 'thinking') {
-            material.color.setHex(0xff00ff);
-            material.emissive.setHex(0xaa00aa);
-            light.color.setHex(0xff00ff);
-            orbSpeed = 0.05;
+            targetColor.setHex(0xff00ff);
+            targetEmissive.setHex(0xaa00aa);
+            targetLight.setHex(0xff00ff);
+            targetOrbSpeed = 0.008;
             targetScale = 1.1;
         } else if (newState === 'speaking') {
-            material.color.setHex(0x00aaff);
-            material.emissive.setHex(0x0055ff);
-            light.color.setHex(0x00aaff);
-            orbSpeed = 0.015;
-            targetScale = 1.3;
+            targetColor.setHex(0x00aaff);
+            targetEmissive.setHex(0x0055ff);
+            targetLight.setHex(0x00aaff);
+            targetOrbSpeed = 0.003;
+            targetScale = 1.2;
         }
     }
     
@@ -194,9 +211,8 @@ function updateState(newState, text = "") {
         }
         cancelBtn.style.display = 'none';
     } else if (newState === 'thinking') {
-        if (chatInput.value) {
+        if (chatInput.value && chatHistory.length === 0 || (chatHistory.length > 0 && chatHistory[chatHistory.length - 1].text !== chatInput.value)) {
             appendToHistory('User', chatInput.value);
-            chatInput.value = '';
         }
         statusText.innerText = text || "THINKING...";
         cancelBtn.style.display = 'block';
@@ -247,12 +263,19 @@ function updateState(newState, text = "") {
                     if (responseBox.classList.contains('fade-out')) {
                         responseBox.style.display = 'none';
                         responseBox.classList.remove('fade-out');
+                        if (backendState === 'idle') {
+                            chatInput.value = '';
+                            chatInput.style.height = 'auto';
+                        }
                         sendMaskUpdate();
                     }
                 }, 500); // Wait for transition
             }, 4000); // Wait 4 seconds
         }
     }
+    
+    // Always update mask when state changes to account for text width changes
+    setTimeout(sendMaskUpdate, 10);
 }
 
 function initWebChannel() {
@@ -265,11 +288,12 @@ function initWebChannel() {
             });
 
             chatInput.addEventListener('keypress', function(e) {
-                if (e.key === 'Enter') {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
                     const val = chatInput.value.trim();
                     if (val) {
                         backend.receive_input(val);
-                        chatInput.value = '';
+                        // Do not clear here, wait for response fade out
                     }
                 }
             });
@@ -310,8 +334,8 @@ hud.style.top = hudTop + 'px';
 let boxLeft = 0;
 let boxTop = 0;
 
-let historyLeft = window.innerWidth / 2;
-let historyTop = window.innerHeight / 2;
+let historyLeft = (window.innerWidth / 2) - 300;
+let historyTop = (window.innerHeight / 2) - 200;
 
 document.addEventListener('mousedown', (e) => {
     if (e.target.tagName !== 'INPUT' && e.target.tagName !== 'BUTTON') {
@@ -320,8 +344,8 @@ document.addEventListener('mousedown', (e) => {
             startX = e.clientX;
             startY = e.clientY;
             const rect = historyModal.getBoundingClientRect();
-            historyLeft = rect.left + rect.width / 2;
-            historyTop = rect.top + rect.height / 2;
+            historyLeft = rect.left;
+            historyTop = rect.top;
         } else if (responseBox.contains(e.target)) {
             isDraggingBox = true;
             startX = e.clientX;
@@ -375,3 +399,11 @@ document.addEventListener('mouseup', () => {
         sendMaskUpdate();
     }
 });
+
+// Handle resizing of the history modal to update the Python interaction mask
+const resizeObserver = new ResizeObserver(() => {
+    if (historyModal && historyModal.style.display === 'flex') {
+        sendMaskUpdate();
+    }
+});
+resizeObserver.observe(historyModal);
