@@ -117,6 +117,7 @@ class VoiceEngine:
         self.pending_context = None
         self.pending_contact = None
         self.notes_mode = False
+        self.non_llm_events = []
         
         # Launch the Typebox UI
         import threading
@@ -254,7 +255,16 @@ class VoiceEngine:
             except asyncio.TimeoutError:
                 pass
             
-            response = await run_opencode_task(text)
+            if hasattr(self, 'non_llm_events') and self.non_llm_events:
+                context_str = "For context, since our last interaction, the following local commands were executed on the user's system:\n"
+                for event in self.non_llm_events:
+                    context_str += f"- User requested: '{event['user']}' -> System output: '{event['jarvis']}'\n"
+                context_str += f"\nNow, please respond to the user's latest request: {text}"
+                
+                response = await run_opencode_task(context_str)
+                self.non_llm_events = []
+            else:
+                response = await run_opencode_task(text)
             
         else:
             # It's a local script execution (e.g. Open Spotify)
@@ -317,6 +327,10 @@ class VoiceEngine:
                 )
             except asyncio.TimeoutError:
                 pass
+            
+            if hasattr(self, 'non_llm_events'):
+                self.non_llm_events.append({"user": text, "jarvis": local_response})
+                
             return # Skip the LLM
             
         # Speak the AI's response
@@ -378,10 +392,6 @@ class VoiceEngine:
                 if self.notes_mode:
                     if self.detect_wake_word(text):
                         self.notes_mode = False
-        
-        # Launch the Typebox UI
-        import threading
-        threading.Thread(target=self._run_typebox, daemon=True).start()
 
                         print("\n[!] Exiting notes mode")
                         try:
@@ -432,6 +442,30 @@ class VoiceEngine:
         finally:
             self.stt.stop_listening()
             self.executor.shutdown(wait=False)
+
+    def _run_typebox(self):
+        import tkinter as tk
+        
+        root = tk.Tk()
+        root.title("Jarvis Typebox")
+        root.geometry("400x80")
+        root.attributes('-topmost', True)
+        
+        def on_submit(event=None):
+            text = entry.get().strip()
+            if text and self.loop and not self.loop.is_closed():
+                try:
+                    self.loop.call_soon_threadsafe(self.queue.put_nowait, text)
+                except Exception:
+                    pass
+                entry.delete(0, tk.END)
+                
+        entry = tk.Entry(root, font=("Segoe UI", 14))
+        entry.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+        entry.bind("<Return>", on_submit)
+        entry.focus()
+        
+        root.mainloop()
 
 
 # ---------- ENTRY ----------
