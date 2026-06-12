@@ -15,9 +15,24 @@ class TextToSpeech:
         self.lock = threading.Lock()
 
     def _sanitize_text(self, text):
+        import re
+        # Convert en-dash and em-dash to words so numbers don't merge
+        text = text.replace('–', ' to ').replace('—', ', ')
+        # Replace markdown table separators (e.g. |---|)
+        text = re.sub(r'\|?\s*(:?-+:?\s*\|)+\s*', ' ', text)
+        # Remove URLs
+        text = re.sub(r'\[([^\]]+)\]\([^\)]+\)', r'\1', text)
+        # Remove markdown symbols
+        text = re.sub(r'[*#_]', '', text)
+        # Replace vertical bars with commas to inject pauses
+        text = text.replace('|', ', ')
         # Remove emojis and non-ascii characters to prevent Piper/espeak Unicode crashes
         sanitized = text.encode('ascii', 'ignore').decode()
-        return sanitized[:2000]
+        # Clean up repeated spaces and commas
+        sanitized = re.sub(r'\s+', ' ', sanitized)
+        sanitized = re.sub(r',\s*(?=,)', '', sanitized)
+        sanitized = re.sub(r'\s+,\s+', ', ', sanitized)
+        return sanitized[:2000].strip(', ')
 
     def synthesize(self, text):
         if not text:
@@ -85,3 +100,10 @@ class TextToSpeech:
 
             except Exception as e:
                 print(f"Playback failed: {e}")
+
+    def stop(self):
+        import sounddevice as sd
+        try:
+            sd.stop()
+        except:
+            pass

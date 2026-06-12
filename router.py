@@ -21,6 +21,12 @@ class Gatekeeper:
         self.battery_route = Route(name="battery_status", utterances=["what is the battery percentage", "check the battery", "how much battery is left", "battery status"])
         
         # Window Management
+        self.focus_window_route = Route(name="focus_window", utterances=['focus', 'bring to front', 'switch to', 'show me', 'go to the', 'bring up', 'can you focus', 'i want to switch to'])
+        
+        # Trash/Ignore
+        self.ignore_route = Route(name="ignore_action", utterances=[
+            'nevermind', 'ignore that', 'cancel that', 'forget it', 'never mind', 'nothing', "doesn't matter"
+        ])
         self.minimize_windows_route = Route(name="minimize_windows", utterances=['can you go to desktop', 'can you clear the screen', 'show the desktop', 'quickly minimize windows', 'clear the screen', 'can you get rid of these windows', 'quickly hide everything', 'please show the desktop', 'quickly show the desktop', 'can you minimize all windows', 'please get rid of these windows', 'quickly clear the screen', 'quickly minimize all windows', 'please show my wallpaper', 'minimize windows', 'can you minimize windows', 'can you show my wallpaper', 'minimize my apps', 'can you hide everything', 'hide all windows', 'minimize all windows', 'go to desktop', 'quickly minimize my apps', 'quickly get rid of these windows', 'quickly go to desktop', 'please clear the screen', 'please hide all windows', 'can you minimize my apps', 'can you show the desktop', 'hide everything', 'show my wallpaper', 'please go to desktop', 'please minimize all windows', 'quickly show my wallpaper', 'please hide everything', 'can you hide all windows', 'quickly hide all windows', 'get rid of these windows', 'please minimize windows', 'please minimize my apps'])
         self.close_window_route = Route(name="close_window", utterances=['quit this program', 'please quit the active program', 'please exit this screen', 'jarvis terminate this app', 'can you close this window', 'terminate this app', 'close the active window', 'please exit the app', 'can you exit the app', 'quit the active program', 'exit the app', 'jarvis close the active window', 'close what i am looking at', 'can you quit this program', 'please quit this program', 'jarvis close the current app', 'can you exit this screen', 'can you quit the active program', 'can you close what i am looking at', 'jarvis close what i am looking at', 'jarvis quit the active program', 'please shut this window', 'jarvis quit this program', 'please terminate this app', 'please close the current app', 'jarvis close this window', 'jarvis exit the app', 'jarvis exit this screen', 'can you shut this window', 'jarvis shut this window', 'please close what i am looking at', 'close this window', 'please close this window', 'exit this screen', 'can you close the current app', 'close the current app', 'can you close the active window', 'can you terminate this app', 'shut this window', 'please close the active window'])
         self.screenshot_route = Route(name="take_screenshot", utterances=["take a screenshot", "screenshot the screen", "capture the screen"])
@@ -69,7 +75,10 @@ class Gatekeeper:
             self.media_play_pause_route, self.media_next_route, self.media_prev_route,
             self.volume_up_route, self.volume_down_route, self.volume_mute_route,
             self.system_stats_route, self.empty_trash_route, self.open_folder_route, self.type_text_route, self.weather_route, self.open_website_route,
-            self.open_app_route, self.search_web_route, self.youtube_route, self.coding_route
+            self.open_app_route, self.search_web_route, self.youtube_route, self.coding_route,
+            self.wikipedia_route, self.timer_route, self.math_route, self.joke_route, 
+            self.date_route, self.whatsapp_route, self.call_route, self.writer_route,
+            self.focus_window_route, self.ignore_route
         ]
         
         self.router = SemanticRouter(encoder=self.encoder, routes=self.routes, auto_sync="local")
@@ -82,6 +91,9 @@ class Gatekeeper:
             
             if decision.name == "coding":
                 return "__CODING__"
+            
+            if decision.name == "ignore_action":
+                return "__IGNORE__"
                 
             # Pass text to execute_skill for regex extraction
             res = system_skills.execute_skill(decision.name, text)

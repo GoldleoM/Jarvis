@@ -66,6 +66,7 @@ async def run_opencode_task(command: str):
     except Exception as e:
         print(f"[AgentRunner] Warning: Could not load config.json: {e}")
 
+    system_directive = "\n\n[System Directive: You are a Voice Assistant. Provide your answer in natural, conversational sentences. Do NOT use Markdown tables, bullet points, or complex formatting, as your response will be read aloud.]"
     payload = {
         "model": {
             "providerID": provider_id,
@@ -75,7 +76,7 @@ async def run_opencode_task(command: str):
         "parts": [
             {
                 "type": "text",
-                "text": command
+                "text": command + system_directive
             }
         ]
     }

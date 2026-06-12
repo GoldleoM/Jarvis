@@ -68,10 +68,10 @@ class SpeechToText:
             print(f"[ERROR] VAD Error: {e}")
             return False
 
-    def transcribe(self, audio_data):
+    def transcribe(self, audio_data, is_partial=False):
         duration = len(audio_data) / self.sample_rate
         
-        if self.debug_volume:
+        if self.debug_volume and not is_partial:
             print(f"\n[DEBUG] Captured Audio Clip: {duration:.2f} seconds")
             
         # 1. Normalize Audio Volume (Crucial for quiet microphones)
@@ -81,7 +81,7 @@ class SpeechToText:
             
         # 2. Duration Gate: Stop "pops" and "clicks" from being transcribed
         if duration < self.min_recording_duration:
-            if self.debug_volume:
+            if self.debug_volume and not is_partial:
                 print(f"[DEBUG] -> Ignored: Clip too short (< {self.min_recording_duration}s)")
             return ""
 
@@ -99,7 +99,7 @@ class SpeechToText:
         
         text = " ".join([segment.text for segment in segments]).strip()
         
-        if self.debug_volume:
+        if self.debug_volume and not is_partial:
             print(f"\n[DEBUG] Audio Clip Duration: {duration:.2f}s | Raw Transcription: '{text}'")
         
         # 3. Ghost Phrase Filter
@@ -107,7 +107,7 @@ class SpeechToText:
             return ""
             
         if any(phrase in text.lower() for phrase in self.ghost_phrases):
-            if self.debug_volume:
+            if self.debug_volume and not is_partial:
                 print(f"[DEBUG] -> Blocked by ghost phrase filter!")
             return ""
             
@@ -115,6 +115,7 @@ class SpeechToText:
 
     def start_listening(self, callback, device_index=None):
         self.audio_queue = queue.Queue()
+        self.partial_queue = queue.Queue(maxsize=1)
         self.stop_event = threading.Event()
 
         def producer():
@@ -168,6 +169,12 @@ class SpeechToText:
                                 pre_record_buffer.clear()
                             else:
                                 audio_buffer.append(chunk_flat)
+                                # Periodically send to partial queue (every ~0.5s = 15 chunks of 32ms)
+                                if len(audio_buffer) % 15 == 0:
+                                    try:
+                                        self.partial_queue.put_nowait(np.concatenate(audio_buffer))
+                                    except queue.Full:
+                                        pass
                     else:
                         speech_frames_count = 0
                         if is_recording:
@@ -189,13 +196,33 @@ class SpeechToText:
                 except queue.Empty:
                     continue
 
+        def partial_worker():
+            while not self.stop_event.is_set():
+                try:
+                    audio = self.partial_queue.get(timeout=0.5)
+                    # Flush the queue to only process the LATEST
+                    while not self.partial_queue.empty():
+                        try:
+                            audio = self.partial_queue.get_nowait()
+                        except:
+                            pass
+                    
+                    partial_text = self.transcribe(audio, is_partial=True)
+                    if partial_text and hasattr(self, 'on_partial') and self.on_partial:
+                        self.on_partial(partial_text)
+                except queue.Empty:
+                    pass
+
         self.producer_thread = threading.Thread(target=producer, daemon=True)
         self.consumer_thread = threading.Thread(target=consumer, daemon=True)
+        self.partial_thread = threading.Thread(target=partial_worker, daemon=True)
         
         self.producer_thread.start()
         self.consumer_thread.start()
+        self.partial_thread.start()
 
     def stop_listening(self):
         self.stop_event.set()
         self.producer_thread.join()
         self.consumer_thread.join()
+        self.partial_thread.join()

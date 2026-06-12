@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Jarvis UI</title>
+    <link rel="stylesheet" href="style.css">
+    <!-- Include Three.js -->
+    <script src="three.min.js"></script>
+    <script src="qwebchannel.js"></script>
+</head>
+<body>
+    <div id="container">
+        <div id="response-box" style="display: none;"></div>
+        <div id="hud-container">
+            <div id="canvas-container"></div>
+            <div id="status-text">JARVIS INITIALIZING...</div>
+            <div id="chat-container">
+                <button id="history-btn" title="Chat History">≡</button>
+                <input type="text" id="chat-input" placeholder="Type a command or say Jarvis..." autocomplete="off">
+                <button id="cancel-btn" style="display: none;">CANCEL</button>
+            </div>
+        </div>
+        <div id="history-modal" style="display: none;">
+            <div class="history-header">
+                <h3>SESSION HISTORY</h3>
+                <button id="close-history-btn">X</button>
+            </div>
+            <div id="history-content"></div>
+        </div>
+    </div>
+    <script src="app.js"></script>
+</body>
+</html>

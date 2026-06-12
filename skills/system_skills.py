@@ -119,4 +119,33 @@ def execute_skill(intent_name, text=""):
         pyautogui.press("volumemute")
         return "Muting the system volume."
 
+    elif intent_name == "focus_window":
+        import re
+        import pyautogui
+        match = re.search(r'(?:focus|bring to front|switch to|show me|go to the|bring up)\s+(.+)', text.lower())
+        if match:
+            app_name = match.group(1).strip()
+            # remove words like "window" or "app"
+            app_name = re.sub(r'\s+(?:window|app|application)$', '', app_name).strip()
+            
+            windows = [w for w in pyautogui.getAllWindows() if w.title and w.visible]
+            target_window = None
+            
+            for w in windows:
+                if app_name.lower() in w.title.lower():
+                    target_window = w
+                    break
+                    
+            if target_window:
+                try:
+                    if target_window.isMinimized:
+                        target_window.restore()
+                    target_window.activate()
+                    return f"Focusing {app_name}, sir."
+                except Exception as e:
+                    return f"I found {app_name}, but I couldn't focus it."
+            else:
+                return f"I couldn't find any open window for {app_name}."
+        return "Which window should I focus?"
+
     return None

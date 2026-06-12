@@ -203,7 +203,7 @@ def execute_skill(intent_name, text=""):
                         data = json.load(f)
                         contacts = data.get('contacts', [])
                         
-                        matches = difflib.get_close_matches(raw_contact, contacts, n=1, cutoff=0.4)
+                        matches = difflib.get_close_matches(raw_contact, contacts, n=1, cutoff=0.6)
                         if matches:
                             matched = matches[0]
                             if matched.lower() == raw_contact.lower():
@@ -215,5 +215,26 @@ def execute_skill(intent_name, text=""):
             return f"__CONTEXT__whatsapp_msg_{raw_contact}__What would you like to say to {raw_contact}?__{raw_contact}"
 
         return "__CONTEXT__whatsapp_who__Who would you like to text?"
+    elif intent_name == "weather":
+        import requests
+        try:
+            resp = requests.get("https://wttr.in/?format=It+is+currently+%C+and+%t.", timeout=5)
+            weather_text = resp.text.replace('+', '').replace('°C', ' degrees Celsius').replace('°F', ' degrees Fahrenheit')
+            return weather_text
+        except Exception:
+            return "I am having trouble connecting to the weather service right now, sir."
+            
+    elif intent_name == "open_website":
+        match = re.search(r'(?:open|go to|browse to|navigate to|launch)\s+(.+)', text.lower())
+        if match:
+            site = match.group(1).strip()
+            site = re.sub(r'\s+(?:website|web page|url|link)$', '', site).strip()
+            if '.' not in site:
+                site = f"{site}.com"
+                
+            import os
+            os.system(f"start https://{site}")
+            return f"Opening {site}, sir."
+        return "Which website would you like me to open?"
 
     return None

@@ -27,7 +27,7 @@ def get_working_input_devices():
     return working
 
 
-def select_input_device():
+def select_input_device(auto_default=False):
     devices = get_working_input_devices()
 
     if not devices:
@@ -37,6 +37,15 @@ def select_input_device():
     print("\n[MIC] Available Working Input Devices:\n")
     for idx, name in devices:
         print(f"[{idx}] {name}")
+
+    if auto_default:
+        print("Auto-selecting mic 3 in UI mode.")
+        import sounddevice as sd
+        try:
+            sd.default.device = (3, None)
+            return 3
+        except:
+            return None
 
     try:
         choice = input("\nSelect mic index (Enter for default): ").strip()
@@ -91,16 +100,23 @@ def get_current_mic():
 # ---------- VOICE ENGINE ----------
 
 class VoiceEngine:
-    def __init__(self, debug=False):
+    def __init__(self, debug=False, ui_mode=False):
         self.debug = debug
+        self.ui_mode = ui_mode
         if self.debug:
             print("[DEBUG] Initializing STT Engine with volume debugging...")
         self.stt = SpeechToText(debug_volume=self.debug)
+        self.stt.on_partial = self.stt_partial_callback
         
-        # Start the persistent OpenCode console in a new window with Gemma-4-31B-it
-        print("Booting persistent OpenCode Console on Port 4096...")
+        # Boot persistent OpenCode Console in background (hidden)
         import subprocess
-        subprocess.Popen('start cmd /k "title Jarvis Console && opencode --agent Jarvis --model google/gemma-4-31b-it --port 4096"', shell=True)
+        import sys
+        creationflags = subprocess.CREATE_NO_WINDOW if sys.platform == 'win32' else 0
+        self.opencode_process = subprocess.Popen(
+            'opencode --agent Jarvis --model google/gemma-4-31b-it --port 4096',
+            shell=True,
+            creationflags=creationflags
+        )
         
         self.tts = TextToSpeech()
         self.gatekeeper = Gatekeeper()
@@ -119,12 +135,25 @@ class VoiceEngine:
         self.notes_mode = False
         self.non_llm_events = []
         
-        # Launch the Typebox UI
-        import threading
-        threading.Thread(target=self._run_typebox, daemon=True).start()
+        self.ui_state = "idle"
+        self.ui_text = "ONLINE"
+        
+        # Launch the Typebox UI (only if not in UI mode)
+        if not self.ui_mode:
+            import threading
+            threading.Thread(target=self._run_typebox, daemon=True).start()
 
+
+    def _set_ui_state(self, state, text=None):
+        self.ui_state = state
+        if text:
+            self.ui_text = text
 
     # ---------- CALLBACK ----------
+
+    def stt_partial_callback(self, text):
+        if not self.is_active: return
+        self._set_ui_state("listening", f'"{text}"')
 
     def stt_callback(self, text):
         if not self.loop:
@@ -145,22 +174,41 @@ class VoiceEngine:
     def detect_wake_word(self, text):
         return re.search(rf"\b{self.wake_word}\b", text.lower())
 
+    def is_interruption(self, text):
+        interruption_words = ["stop", "quiet", "shut up", "pause", "enough", "cancel", "halt", "silence", "shh", "shutup"]
+        text_lower = text.lower()
+        for word in interruption_words:
+            if re.search(rf"\b{word}\b", text_lower):
+                return True
+        return False
+
     # ---------- COMMAND ----------
 
     async def handle_command(self, text):
+        self._set_ui_state("thinking", "PROCESSING...")
         print(f"Command: {text}")
 
         clean_text = text.lower().strip(" ,!?.-")
         if clean_text in ["exit", "quit", "stop", "close", "shut down", "goodbye", "close this", "stop there"]:
             print("\nShutting down Jarvis...")
+            self._set_ui_state("speaking", "Goodbye, sir.")
             try:
-                # Run TTS synchronously so it finishes before killing the process
-                self.tts.speak("Goodbye, sir.")
+                await asyncio.wait_for(
+                    self.loop.run_in_executor(self.executor, self.tts.speak, "Goodbye, sir."),
+                    timeout=10
+                )
             except:
                 pass
-            import os
-            os._exit(0) # Immediately exits and suppresses asyncio event loop closure errors on Windows
-
+            self._set_ui_state("idle", "OFFLINE")
+            if getattr(self, 'ui_mode', False):
+                from PySide6.QtWidgets import QApplication
+                app = QApplication.instance()
+                if app:
+                    app.quit()
+                return
+            else:
+                import os
+                os._exit(0)
 
         # --- CONTEXTUAL STATE MACHINE ---
         if self.pending_context:
@@ -244,6 +292,9 @@ class VoiceEngine:
 
         # Check local intent via Semantic Router
         local_response = self.gatekeeper.route_command(clean_text)
+        if local_response == "__IGNORE__":
+            return
+
         if local_response is None or local_response == "__CODING__":
             # Delegate to Heavy Coding AI (OpenCode)
             from agent_runner import run_opencode_task
@@ -319,6 +370,7 @@ class VoiceEngine:
                         
                 asyncio.create_task(timer_task(seconds))
 
+            self._set_ui_state("speaking", local_response)
             print(f"Jarvis: {local_response}")
             try:
                 await asyncio.wait_for(
@@ -327,6 +379,8 @@ class VoiceEngine:
                 )
             except asyncio.TimeoutError:
                 pass
+            finally:
+                self._set_ui_state("idle", "ONLINE")
             
             if hasattr(self, 'non_llm_events'):
                 self.non_llm_events.append({"user": text, "jarvis": local_response})
@@ -334,6 +388,7 @@ class VoiceEngine:
             return # Skip the LLM
             
         # Speak the AI's response
+        self._set_ui_state("speaking", response)
         print(f"Jarvis: {response}")
 
         try:
@@ -342,7 +397,11 @@ class VoiceEngine:
                 timeout=60 # Extended timeout for longer responses
             )
         except asyncio.TimeoutError:
-            pass    # ---------- MAIN ----------
+            pass
+        finally:
+            self._set_ui_state("idle", "ONLINE")
+
+    # ---------- MAIN ----------
 
     async def run(self):
         print("Initializing Jarvis Voice Interface...")
@@ -350,8 +409,8 @@ class VoiceEngine:
 
         print("\n--- Audio Setup ---")
 
-        # 🔥 Select only valid devices
-        select_input_device()
+        # 🔥 Select only valid devices (skip blocking input if in UI mode)
+        select_input_device(auto_default=getattr(self, 'ui_mode', False))
 
         mic = get_current_mic()
         if mic:
@@ -376,6 +435,19 @@ class VoiceEngine:
         self.stt.start_listening(self.stt_callback)
 
         print("Listening for 'Jarvis'...\n")
+
+        # LLM Warmup and Welcome Message
+        async def _warmup_and_greet():
+            print("[System] Warming up LLM and fetching welcome message...")
+            try:
+                from agent_runner import run_opencode_task
+                response = await run_opencode_task("System startup complete. Please give a very short, 1-sentence greeting indicating you are online and ready, sir.")
+                print(f"Jarvis: {response}")
+                await self.loop.run_in_executor(self.executor, self.tts.speak, response)
+            except Exception as e:
+                print(f"[System] LLM Warmup failed: {e}")
+
+        asyncio.create_task(_warmup_and_greet())
 
         try:
             while True:
@@ -411,7 +483,9 @@ class VoiceEngine:
 
                 if self.detect_wake_word(text):
                     print("\n[!] Wake word detected")
+                    self.tts.stop() # Interrupt audio on wake word
                     self.is_active = True
+                    self._set_ui_state("listening", "LISTENING...")
                     self.last_active_time = time.time()
 
                     command = re.split(
@@ -428,6 +502,15 @@ class VoiceEngine:
                         self.current_task = asyncio.create_task(self.handle_command(command))
                     else:
                         print("Listening...")
+
+                elif self.is_interruption(text):
+                    print("\n[!] Interruption detected")
+                    self.tts.stop() # Interrupt audio
+                    self._set_ui_state("idle", "ONLINE")
+                    if self.current_task and not self.current_task.done():
+                        print("\n[!] Interrupting current task...")
+                        self.current_task.cancel()
+                    self.is_active = False
 
                 elif self.is_active:
                     if self.current_task and not self.current_task.done():
@@ -470,8 +553,8 @@ class VoiceEngine:
 
 # ---------- ENTRY ----------
 
-async def main(debug=False):
-    engine = VoiceEngine(debug=debug)
+async def main(debug=False, ui_mode=False):
+    engine = VoiceEngine(debug=debug, ui_mode=ui_mode)
     await engine.run()
 
 
