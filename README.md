@@ -44,16 +44,25 @@ Microphone → Silero VAD → Wake Word Detection → faster-whisper STT
 | UI (optional) | PySide6 (Qt 6) |
 | GPU | CUDA + float16 inference |
 
+## Requirements
+
+- Python 3.10+
+- CUDA-capable GPU (recommiouend for real-time inference)
+- Piper TTS executable (download from rhasspy/piper releases on GitHub)
+- Microphone
+
 ## Setup
 
-1. Install Python 3.10+ with CUDA toolkit
-2. Install dependencies:
+1. Clone the repo and install dependencies:
 
 ```bash
-pip install faster-whisper sounddevice numpy torch onnxruntime huggingface_hub webrtcvad speechbrain
+pip install -r requirements.txt
 ```
 
-3. Download Piper TTS executable and place the path in `config.py`
+2. Download a Piper voice model (.onnx + .json) from Hugging Face (e.g., rhasspy/piper-voices) and place it in the `models/` directory.
+
+3. Download the Piper TTS executable from the releases page and set its path in `config.py` under `PIPER_PATH`.
+
 4. Run:
 
 ```bash
