@@ -1,0 +1,6 @@
+__pycache__/
+*.pyc
+*.pyo
+.env
+voice_print.pt
+silero_vad.onnx
