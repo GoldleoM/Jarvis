@@ -35,7 +35,7 @@ def execute_skill(intent_name, text=""):
                 with open(apps_json_path, 'r', encoding='utf-8') as f:
                     apps_dict = json.load(f)
                     
-                matches = difflib.get_close_matches(app_name, apps_dict.keys(), n=1, cutoff=0.5)
+                matches = difflib.get_close_matches(app_name, apps_dict.keys(), n=1, cutoff=0.75)
                 if matches:
                     best_match = matches[0]
                     app_path = apps_dict[best_match]
@@ -67,6 +67,12 @@ def execute_skill(intent_name, text=""):
             app_name = match.group(1).strip()
             # Just grab first 3 words to avoid eating the sentence
             app_name = " ".join(app_name.split()[:3])
+            
+            if app_name in ["this window", "the window", "this app", "current window"]:
+                import pyautogui
+                pyautogui.hotkey('alt', 'f4')
+                return "Closing this window, sir."
+                
             # Common mappings
             app_map = {"spotify": "spotify.exe", "chrome": "chrome.exe", "discord": "discord.exe", "whatsapp": "whatsapp.exe", "calculator": "calculator.exe"}
             process_name = app_map.get(app_name.lower(), f"{app_name.replace(' ', '')}.exe")
@@ -74,6 +80,57 @@ def execute_skill(intent_name, text=""):
             os.system(f"taskkill /F /IM {process_name} /T")
             return f"Closing {app_name}, sir."
         return "Which app would you like me to close?"
+
+    elif intent_name == "focus_app":
+        match = re.search(r'(?:focus|switch|bring|go to|activate|jump|pull up|show me|make)\s+(?:on\s+|to\s+|over to\s+|me over to\s+)?(?:the\s+)?([a-zA-Z0-9\s\-]+)', text.lower())
+        app_name = ""
+        if match:
+            app_name = match.group(1).replace("to front", "").replace("the active window", "").replace("up", "").replace("please", "").strip()
+        else:
+            app_name = text.lower().replace("please", "").replace("focus", "").replace("switch to", "").strip()
+            
+        if not app_name:
+            return "Which app would you like me to focus?"
+            
+        import pygetwindow as gw
+        import difflib
+        
+        try:
+            all_windows = gw.getAllTitles()
+            valid_windows = [w for w in all_windows if w.strip()]
+            
+            if not valid_windows:
+                return "No active windows found."
+                
+            # Try exact/substring match first (case insensitive)
+            for w in valid_windows:
+                if app_name.lower() in w.lower():
+                    try:
+                        win = gw.getWindowsWithTitle(w)[0]
+                        if win.isMinimized:
+                            win.restore()
+                        win.activate()
+                        return f"Focusing {w}."
+                    except Exception as e:
+                        pass
+                        
+            # Fallback to fuzzy match
+            matches = difflib.get_close_matches(app_name, valid_windows, n=1, cutoff=0.4)
+            if matches:
+                best_match = matches[0]
+                try:
+                    win = gw.getWindowsWithTitle(best_match)[0]
+                    if win.isMinimized:
+                        win.restore()
+                    win.activate()
+                    return f"Focusing {best_match}."
+                except Exception as e:
+                    pass
+            
+            return f"Could not find a window matching {app_name}."
+        except Exception as e:
+            print(f"Focus window failed: {e}")
+            return "I ran into an issue focusing that window, sir."
 
     elif intent_name == "type_text":
         match = re.search(r'(?:type|dictate|write)(?:\s+(?:for me|out|down|this|that|exactly))*\s+(.+)', text.lower(), re.IGNORECASE)

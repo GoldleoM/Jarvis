@@ -46,7 +46,7 @@ body, html {
     text-shadow: 0 0 10px rgba(0, 255, 255, 0.5);
     margin-bottom: 25px;
     font-weight: 300;
-    transition: color 1s ease-in-out, text-shadow 1s ease-in-out;
+    transition: opacity 0.3s ease-in-out, color 1s ease-in-out, text-shadow 1s ease-in-out;
 }
 
 #response-box {
@@ -105,7 +105,7 @@ body, html {
     resize: none;
     overflow-y: auto;
     min-height: 22px;
-    max-height: 120px;
+    max-height: 200px;
     line-height: 22px;
     padding: 0;
 }

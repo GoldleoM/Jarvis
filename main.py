@@ -1,6 +1,6 @@
 import asyncio
 import concurrent.futures
-import time
+import time as _time
 import re
 import os
 import logging
@@ -167,9 +167,11 @@ class VoiceEngine:
 
         # Acoustic Echo Prevention: If Jarvis is speaking or just finished speaking recently (to allow STT to catch up), ignore transcribed audio
         # UNLESS the user is explicitly trying to interrupt with the wake word or a stop command
-        recent_speech = hasattr(self, 'last_speech_time') and (time.time() - self.last_speech_time < 2.0)
+        # Timeout increased to 3.5s to account for NVIDIA Broadcast latency + VAD silence timeout + Whisper execution time.
+        recent_speech = hasattr(self, 'last_speech_time') and (_time.time() - self.last_speech_time < 3.5)
         
-        if self.ui_state == "speaking" or recent_speech:
+        # If we are actively expecting a response, bypass the recent_speech block so the user can answer immediately.
+        if self.ui_state == "speaking" or (recent_speech and not getattr(self, 'is_active', False)):
             if not (self.detect_wake_word(text) or self.is_interruption(text)):
                 return
 
@@ -177,6 +179,7 @@ class VoiceEngine:
             self.loop.call_soon_threadsafe(self.queue.put_nowait, text)
         except asyncio.QueueFull:
             pass
+
 
     async def hot_reload(self, settings_dict):
         print(f"\n[System] Hot Reloading Settings...")
@@ -229,7 +232,7 @@ class VoiceEngine:
     # ---------- LOGIC ----------
 
     def check_timeout(self):
-        if self.is_active and (time.time() - self.last_active_time > self.activity_timeout):
+        if self.is_active and (_time.time() - self.last_active_time > self.activity_timeout):
             print("System going back to sleep...")
             self.is_active = False
 
@@ -257,6 +260,19 @@ class VoiceEngine:
 
         try:
             clean_text = text.lower().strip(" ,!?.-")
+            
+            # --- HALLUCINATION FILTER ---
+            hallucinations = [
+                "thank you for watching", "thanks for watching", 
+                "please return to your meeting and play back", "the media playback",
+                "it's troubling me to get playback", "um, what", "i'm sorry",
+                "i'm hearing", "i hear you", "i'm here", "i'm hearing you"
+            ]
+            if clean_text in hallucinations or len(clean_text) < 2:
+                print(f"[!] Ignored known Whisper hallucination: {clean_text}")
+                self._set_ui_state("idle", "ONLINE")
+                return
+
             if clean_text in ["exit", "quit", "stop", "close", "shut down", "goodbye", "close this", "stop there"]:
                 print("\nShutting down Jarvis...")
                 self._set_ui_state("speaking", "Goodbye, sir.")
@@ -371,7 +387,7 @@ class VoiceEngine:
                         pass
                     return
 
-            self.last_active_time = time.time()
+            self.last_active_time = _time.time()
 
             # Check local intent via Semantic Router
             local_response = await self.loop.run_in_executor(self.executor, self.gatekeeper.route_command, clean_text)
@@ -420,6 +436,9 @@ class VoiceEngine:
                     )
                 except asyncio.TimeoutError:
                     pass
+                finally:
+                    self.last_speech_time = _time.time()
+                    self.stt.flush_requested = True
                 
                 if hasattr(self, 'non_llm_events') and self.non_llm_events:
                     context_str = "For context, since our last interaction, the following local commands were executed on the user's system:\n"
@@ -495,7 +514,8 @@ class VoiceEngine:
                 except asyncio.TimeoutError:
                     pass
                 finally:
-                    self.last_speech_time = time.time()
+                    self.last_speech_time = _time.time()
+                    self.stt.flush_requested = True
                     if self.ui_state in ["thinking", "speaking"]:
                         self._set_ui_state("idle", "ONLINE")
                 
@@ -526,7 +546,7 @@ class VoiceEngine:
         except asyncio.TimeoutError:
             pass
         finally:
-            self.last_speech_time = time.time()
+            self.last_speech_time = _time.time()
             self._set_ui_state("idle", "ONLINE")
 
     # ---------- MAIN ----------
@@ -719,7 +739,7 @@ class VoiceEngine:
                     self.tts.stop() # Interrupt audio on wake word
                     self.is_active = True
                     self._set_ui_state("listening", "LISTENING...")
-                    self.last_active_time = time.time()
+                    self.last_active_time = _time.time()
 
                     command = re.split(
                         rf"\b{self.wake_word}\b",

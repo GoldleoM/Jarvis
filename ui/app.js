@@ -289,49 +289,61 @@ function updateState(newState, text = "") {
             targetColor.setHex(0x00ffff);
             targetEmissive.setHex(0x0088ff);
             targetLight.setHex(0x00ffff);
-            targetOrbSpeed = 0.001;
+            targetOrbSpeed = 0.0005;
             targetScale = 1.0;
         } else if (newState === 'listening') {
             targetColor.setHex(0x00ffaa);
             targetEmissive.setHex(0x00aa55);
             targetLight.setHex(0x00ffaa);
-            targetOrbSpeed = 0.004;
+            targetOrbSpeed = 0.001;
             targetScale = 1.15;
         } else if (newState === 'thinking') {
             targetColor.setHex(0xff00ff);
             targetEmissive.setHex(0xaa00aa);
             targetLight.setHex(0xff00ff);
-            targetOrbSpeed = 0.008;
+            targetOrbSpeed = 0.002;
             targetScale = 1.1;
         } else if (newState === 'speaking') {
             targetColor.setHex(0x00aaff);
             targetEmissive.setHex(0x0055ff);
             targetLight.setHex(0x00aaff);
-            targetOrbSpeed = 0.003;
+            targetOrbSpeed = 0.001;
             targetScale = 1.2;
         }
     }
     
+    function updateTextSmoothly(el, newText) {
+        if (el.innerText !== newText) {
+            el.classList.add('fade-out');
+            setTimeout(() => {
+                el.innerText = newText;
+                el.classList.remove('fade-out');
+            }, 300);
+        }
+    }
+    
     if (newState === 'idle') {
-        statusText.innerText = text || "ONLINE";
+        updateTextSmoothly(statusText, text || "ONLINE");
         cancelBtn.style.display = 'none';
         chatInput.placeholder = "Type a command or say Jarvis...";
     } else if (newState === 'listening') {
         if (text && text.startsWith('"') && text.endsWith('"')) {
             chatInput.value = text.slice(1, -1);
-            statusText.innerText = "LISTENING...";
+            updateTextSmoothly(statusText, "LISTENING...");
         } else {
-            statusText.innerText = text || "LISTENING...";
+            updateTextSmoothly(statusText, text || "LISTENING...");
         }
         cancelBtn.style.display = 'none';
     } else if (newState === 'thinking') {
         if (chatInput.value && chatHistory.length === 0 || (chatHistory.length > 0 && chatHistory[chatHistory.length - 1].text !== chatInput.value)) {
             appendToHistory('User', chatInput.value);
         }
-        statusText.innerText = text || "THINKING...";
+        updateTextSmoothly(statusText, text || "THINKING...");
         cancelBtn.style.display = 'block';
     } else if (newState === 'speaking') {
-        statusText.innerText = "SPEAKING...";
+        updateTextSmoothly(statusText, "SPEAKING...");
+        chatInput.value = "";
+        chatInput.style.height = 'auto';
         
         // Interrupt fade
         if (fadeTimeout) clearTimeout(fadeTimeout);
