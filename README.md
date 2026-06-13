@@ -26,9 +26,12 @@ Microphone → Silero VAD → Wake Word Detection → faster-whisper STT
 - Text-to-speech using Piper TTS with British English (Alba) voice
 - Semantic routing for local commands (apps, system control, timers, WhatsApp)
 - Integration with OpenCode LLM agent for complex/coding tasks
-- System tray support (PySide6 UI mode)
-- Notes mode for dictation
+- Automatic app scanning and discovery (app_scanner.py)
+- WiFi radio toggle (on/off via Windows Runtime API)
+- System tray support (PySide6 UI mode) with chat panel and VU meter
+- Notes mode for dictation with automatic file saving
 - Confirmation flow for destructive actions (shutdown, restart, sleep)
+- Persistent memory for user preferences and context
 
 ## Tech Stack
 
@@ -47,7 +50,7 @@ Microphone → Silero VAD → Wake Word Detection → faster-whisper STT
 ## Requirements
 
 - Python 3.10+
-- CUDA-capable GPU (recommiouend for real-time inference)
+- CUDA-capable GPU (recommended for real-time inference)
 - Piper TTS executable (download from rhasspy/piper releases on GitHub)
 - Microphone
 
@@ -105,11 +108,14 @@ A desktop UI built with PySide6 is available under `jarvis_ui.py` and the `ui/` 
 ├── tts.py               # Text-to-speech (Piper)
 ├── router.py            # Semantic command router
 ├── agent_runner.py      # OpenCode LLM integration
+├── app_scanner.py       # Automatic app discovery
+├── jarvis_ui.py         # PySide6 desktop UI
+├── toggle_wifi.ps1      # WiFi radio toggle script
 ├── skills/
 │   ├── app_skills.py    # Application automation
 │   └── system_skills.py # System control
-├── jarvis_ui.py         # PySide6 desktop UI
-├── ui/                  # UI assets
-├── models/              # TTS voice models
+├── ui/                  # UI assets (HTML, JS, CSS)
+├── models/              # TTS voice models (.onnx)
+├── jarvis_notes/        # Saved dictation notes
 └── tests/               # Test suite
 ```
