@@ -14,6 +14,7 @@ os.environ['PHONEMIZER_ESPEAK_LIBRARY'] = os.path.join(
     'libespeak-ng.dll'
 )
 
+import warnings
 from kokoro import KPipeline
 
 
@@ -29,7 +30,9 @@ class TextToSpeech:
     def pipeline(self):
         if self._pipeline is None:
             lang_code = getattr(config, 'KOKORO_LANG_CODE', 'b')
-            self._pipeline = KPipeline(lang_code=lang_code)
+            with warnings.catch_warnings():
+                warnings.simplefilter('ignore')
+                self._pipeline = KPipeline(lang_code=lang_code, repo_id='hexgrad/Kokoro-82M')
         return self._pipeline
 
     def _sanitize_text(self, text):
