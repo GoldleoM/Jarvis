@@ -8,6 +8,8 @@ import torch
 import os
 import warnings
 import collections
+import difflib
+import re
 
 # Suppress internal PyTorch FutureWarnings
 warnings.filterwarnings("ignore")
@@ -115,12 +117,42 @@ class SpeechToText:
             
         return text
 
+    # ---------- STREAMING STT HELPERS ----------
+
+    @staticmethod
+    def _text_similarity(a, b):
+        """Return similarity ratio (0-1) between two text strings."""
+        if not a or not b:
+            return 0.0
+        return difflib.SequenceMatcher(None, a.lower(), b.lower()).ratio()
+
+    def _is_complete_command(self, text, wake_word="jarvis"):
+        """Check if partial text is complete enough to dispatch early."""
+        if not text:
+            return False
+        text_lower = text.lower().strip()
+        words = text_lower.split()
+        # Check if wake word is present
+        has_wake = re.search(rf"\b{wake_word}\b", text_lower)
+        if has_wake:
+            # Extract words after wake word
+            parts = re.split(rf"\b{wake_word}\b", text_lower, maxsplit=1)
+            after_wake = parts[-1].strip() if len(parts) > 1 else ""
+            after_words = after_wake.split()
+            # At least 2 meaningful words after wake word
+            if len(after_words) >= 2:
+                return True
+            return False
+        else:
+            # Standalone command: at least 3 words
+            return len(words) >= 3
+
     def start_listening(self, callback, device_index=None):
         if device_index is None:
             device_index = getattr(self, 'mic_index', None)
             
         self.audio_queue = queue.Queue()
-        self.partial_queue = queue.Queue(maxsize=1)
+        self.partial_queue = queue.Queue(maxsize=5)
         self.stop_event = threading.Event()
 
         def producer():
@@ -191,8 +223,8 @@ class SpeechToText:
                                 pre_record_buffer.clear()
                             else:
                                 audio_buffer.append(chunk_flat)
-                                # Periodically send to partial queue (every ~0.5s = 15 chunks of 32ms)
-                                if len(audio_buffer) % 15 == 0:
+                                # Periodically send to partial queue (every ~0.32s = 10 chunks of 32ms)
+                                if len(audio_buffer) % 10 == 0:
                                     try:
                                         self.partial_queue.put_nowait(np.concatenate(audio_buffer))
                                     except queue.Full:
@@ -218,11 +250,15 @@ class SpeechToText:
                 except queue.Empty:
                     continue
 
+        self._last_partial_text = ""  # For dedup tracking
+        self._partial_dedup_threshold = 0.70  # 70% similarity = skip
+        self._wake_word = getattr(__import__('config', fromlist=['WAKE_WORD']), 'WAKE_WORD', 'jarvis')
+
         def partial_worker():
             while not self.stop_event.is_set():
                 try:
                     audio = self.partial_queue.get(timeout=0.5)
-                    # Flush the queue to only process the LATEST
+                    # Drain queue to only process the LATEST audio chunk (adaptive chunking)
                     while not self.partial_queue.empty():
                         try:
                             audio = self.partial_queue.get_nowait()
@@ -230,7 +266,21 @@ class SpeechToText:
                             pass
                     
                     partial_text = self.transcribe(audio, is_partial=True)
-                    if partial_text and hasattr(self, 'on_partial') and self.on_partial:
+                    if not partial_text:
+                        continue
+                    
+                    # --- DEDUP: skip if too similar to last dispatched text ---
+                    similarity = self._text_similarity(partial_text, self._last_partial_text)
+                    if similarity >= self._partial_dedup_threshold:
+                        continue
+                    
+                    # --- COMPLETENESS CHECK: only dispatch if text is meaningful ---
+                    if not self._is_complete_command(partial_text, wake_word=self._wake_word):
+                        continue
+                    
+                    # Update last dispatched and forward to callback
+                    self._last_partial_text = partial_text
+                    if hasattr(self, 'on_partial') and self.on_partial:
                         self.on_partial(partial_text)
                 except queue.Empty:
                     pass
