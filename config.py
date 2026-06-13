@@ -26,7 +26,7 @@ WHISPER_COMPUTE_TYPE = "int8_float16" # Low power mode: reduced precision, much 
 
 
 # ---------- TTS ----------
-TTS_ENGINE = "kokoro"  # "piper" or "kokoro"
+TTS_ENGINE = "piper"  # "piper" or "kokoro"
 
 # -- Piper (fallback) --
 PIPER_PATH = r"C:\Users\GoldleoM\AppData\Roaming\Python\Python310\Scripts\piper.exe"
