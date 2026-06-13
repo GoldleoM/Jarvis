@@ -16,9 +16,6 @@ os.environ['PHONEMIZER_ESPEAK_LIBRARY'] = os.path.join(
 
 import warnings
 
-# Force CPU to avoid cuDNN version conflicts
-os.environ['CUDA_VISIBLE_DEVICES'] = '-1'
-
 from kokoro import KPipeline
 
 
