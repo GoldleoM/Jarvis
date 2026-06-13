@@ -144,6 +144,8 @@ if (settingsBtn) {
                             document.getElementById('whisper-display').innerText = s.WHISPER_MODEL || 'medium.en';
                             document.getElementById('setting-compute-type').value = s.WHISPER_COMPUTE_TYPE || 'float16';
                             document.getElementById('compute-display').innerText = s.WHISPER_COMPUTE_TYPE || 'float16';
+                            document.getElementById('setting-whisper-device').value = s.WHISPER_DEVICE || 'cuda';
+                            document.getElementById('device-display').innerText = s.WHISPER_DEVICE || 'cuda';
                             document.getElementById('setting-vad-threshold').value = s.VAD_THRESHOLD || 0.5;
                             document.getElementById('setting-orb-color').value = s.ORB_COLOR || '#00ffff';
                             document.getElementById('setting-orb-glow').value = s.ORB_GLOW || '#0088ff';
@@ -173,6 +175,7 @@ if (saveSettingsBtn) {
             OPENCODE_PROVIDER: document.getElementById('setting-opencode-provider').value,
             WHISPER_MODEL: document.getElementById('setting-whisper-model').value,
             WHISPER_COMPUTE_TYPE: document.getElementById('setting-compute-type').value || 'float16',
+            WHISPER_DEVICE: document.getElementById('setting-whisper-device').value || 'cuda',
             VAD_THRESHOLD: parseFloat(document.getElementById('setting-vad-threshold').value) || 0.5,
             ORB_COLOR: document.getElementById('setting-orb-color').value || '#00ffff',
             ORB_GLOW: document.getElementById('setting-orb-glow').value || '#0088ff',

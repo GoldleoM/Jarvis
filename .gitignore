@@ -10,3 +10,8 @@ silero_vad.onnx
 pi_1million.txt
 pi_million.py
 deps.txt
+
+# TTS model files (download separately)
+models/
+*.wav
+test_*.py

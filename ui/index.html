@@ -80,6 +80,17 @@
                             </div>
                         </div>
                     </label>
+                    <label>Whisper Device: 
+                        <div class="custom-select-container">
+                            <input type="hidden" id="setting-whisper-device" value="cuda">
+                            <div class="custom-select-value" id="device-display">cuda</div>
+                            <div class="custom-select-options">
+                                <div onclick="document.getElementById('setting-whisper-device').value='cuda'; document.getElementById('device-display').innerText='cuda';">cuda (GPU)</div>
+                                <div onclick="document.getElementById('setting-whisper-device').value='cpu'; document.getElementById('device-display').innerText='cpu';">cpu</div>
+                                <div onclick="document.getElementById('setting-whisper-device').value='auto'; document.getElementById('device-display').innerText='auto';">auto (battery-aware)</div>
+                            </div>
+                        </div>
+                    </label>
                     <label>VAD Threshold: <input type="number" id="setting-vad-threshold" step="0.1" min="0" max="1"></label>
                     
                     <div style="display: flex; gap: 10px; width: 100%;">

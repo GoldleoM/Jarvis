@@ -83,6 +83,7 @@ class BackendBridge(QObject):
             "MIC_INDEX": getattr(config, "MIC_INDEX", None) if config else None,
             "WHISPER_MODEL": getattr(config, "WHISPER_MODEL", "medium.en") if config else "medium.en",
             "WHISPER_COMPUTE_TYPE": getattr(config, "WHISPER_COMPUTE_TYPE", "float16") if config else "float16",
+            "WHISPER_DEVICE": getattr(config, "WHISPER_DEVICE", "cuda") if config else "cuda",
             "VAD_THRESHOLD": getattr(config, "VAD_THRESHOLD", 0.5) if config else 0.5,
             "OPENCODE_PROVIDER": "opencode",
             "OPENCODE_MODEL": "big-pickle",
@@ -202,6 +203,9 @@ class BackendBridge(QObject):
                     
                 if s.get("WHISPER_COMPUTE_TYPE"):
                     config_py_content = re.sub(r'WHISPER_COMPUTE_TYPE\s*=\s*".*"', f'WHISPER_COMPUTE_TYPE = "{s["WHISPER_COMPUTE_TYPE"]}"', config_py_content)
+                    
+                if s.get("WHISPER_DEVICE"):
+                    config_py_content = re.sub(r'WHISPER_DEVICE\s*=\s*".*"', f'WHISPER_DEVICE = "{s["WHISPER_DEVICE"]}"', config_py_content)
                     
                 if s.get("VAD_THRESHOLD") is not None:
                     config_py_content = re.sub(r'VAD_THRESHOLD\s*=\s*.*', f'VAD_THRESHOLD = {s["VAD_THRESHOLD"]}', config_py_content)

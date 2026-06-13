@@ -3,6 +3,7 @@ import numpy as np
 import sounddevice as sd
 import threading
 import config
+import re
 
 
 class TextToSpeech:
@@ -10,25 +11,15 @@ class TextToSpeech:
         self.piper_exe = config.PIPER_PATH
         self.model_path = config.PIPER_MODEL
         self.sample_rate = 22050
-        self.max_text_length = 500
-
         self.lock = threading.Lock()
 
     def _sanitize_text(self, text):
-        import re
-        # Convert en-dash and em-dash to words so numbers don't merge
-        text = text.replace('–', ' to ').replace('—', ', ')
-        # Replace markdown table separators (e.g. |---|)
+        text = text.replace('\u2013', ' to ').replace('\u2014', ', ')
         text = re.sub(r'\|?\s*(:?-+:?\s*\|)+\s*', ' ', text)
-        # Remove URLs
         text = re.sub(r'\[([^\]]+)\]\([^\)]+\)', r'\1', text)
-        # Remove markdown symbols
         text = re.sub(r'[*#_]', '', text)
-        # Replace vertical bars with commas to inject pauses
         text = text.replace('|', ', ')
-        # Remove emojis and non-ascii characters to prevent Piper/espeak Unicode crashes
         sanitized = text.encode('ascii', 'ignore').decode()
-        # Clean up repeated spaces and commas
         sanitized = re.sub(r'\s+', ' ', sanitized)
         sanitized = re.sub(r',\s*(?=,)', '', sanitized)
         sanitized = re.sub(r'\s+,\s+', ', ', sanitized)
@@ -37,30 +28,17 @@ class TextToSpeech:
     def synthesize(self, text):
         if not text:
             return b""
-
         text = self._sanitize_text(text)
-
         try:
             process = subprocess.Popen(
                 [self.piper_exe, "--model", self.model_path, "--output_raw"],
-                stdin=subprocess.PIPE,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=False,
-                creationflags=subprocess.CREATE_NO_WINDOW
+                stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                text=False, creationflags=subprocess.CREATE_NO_WINDOW
             )
-
-            stdout, stderr = process.communicate(
-                input=text.encode("utf-8"),
-                timeout=10
-            )
-
+            stdout, stderr = process.communicate(input=text.encode("utf-8"), timeout=10)
             if process.returncode != 0:
-                print(f"Piper Error: {stderr.decode()}")
                 return b""
-
             return stdout
-
         except subprocess.TimeoutExpired:
             process.kill()
             return b""
@@ -71,38 +49,19 @@ class TextToSpeech:
     def speak(self, text):
         with self.lock:
             audio_bytes = self.synthesize(text)
-
             if not audio_bytes:
                 return
-
             try:
-                audio = np.frombuffer(audio_bytes, dtype=np.int16)
-                audio = audio.astype(np.float32) / 32768.0
-
-                # Silence padding
-                silence_len = int(self.sample_rate * 0.1)
-                silence = np.zeros(silence_len, dtype=np.float32)
+                audio = np.frombuffer(audio_bytes, dtype=np.int16).astype(np.float32) / 32768.0
+                silence = np.zeros(int(self.sample_rate * 0.1), dtype=np.float32)
                 audio = np.concatenate([silence, audio, silence])
-
-                # Fade
-                fade_len = int(self.sample_rate * 0.01)
-                fade_len = min(fade_len, len(audio)//2)
-
-                fade_in = np.linspace(0, 1, fade_len)
-                fade_out = np.linspace(1, 0, fade_len)
-
-                audio[:fade_len] *= fade_in
-                audio[-fade_len:] *= fade_out
-
-                sd.stop()  # interrupt previous audio
+                sd.stop()
                 sd.play(audio, self.sample_rate)
                 sd.wait()
-
             except Exception as e:
                 print(f"Playback failed: {e}")
 
     def stop(self):
-        import sounddevice as sd
         try:
             sd.stop()
         except:

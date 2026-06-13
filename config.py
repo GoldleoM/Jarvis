@@ -20,21 +20,23 @@ WAKE_WORD_CONFIDENCE_THRESHOLD = 0.85
 
 
 # ---------- WHISPER ----------
-WHISPER_MODEL = "medium.en"
+WHISPER_MODEL = "small.en"
 WHISPER_DEVICE = "cuda"
-WHISPER_COMPUTE_TYPE = "float16" # Using full float16 precision for maximum accuracy
+WHISPER_COMPUTE_TYPE = "int8_float16" # Low power mode: reduced precision, much less GPU usage
 
 
 # ---------- TTS ----------
-TTS_ENGINE = "piper"
+TTS_ENGINE = "kokoro"  # "piper" or "kokoro"
 
-# 🔥 ADD THIS (you were missing it)
+# -- Piper (fallback) --
 PIPER_PATH = r"C:\Users\GoldleoM\AppData\Roaming\Python\Python310\Scripts\piper.exe"
+PIPER_MODEL = r"models\en_GB-alan-low.onnx"
 
-# 🔥 FIX NAME (match your TTS code)
-PIPER_MODEL = r"models\en_GB-alba-medium.onnx"
+# -- Kokoro (lightning fast) --
+KOKORO_LANG_CODE = "b"      # 'b' = British English, 'a' = American English
+KOKORO_VOICE = "bm_lewis"    # bm_lewis (British male) | bf_emma (British female)
+                              # bf_isabella | bm_george
 
-# Optional (future)
 AUDIO_OUTPUT_DEVICE = 2
 
 

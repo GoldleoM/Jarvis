@@ -151,6 +151,34 @@ class Gatekeeper:
         if decision.name:
             print(f"[Gatekeeper] Matched intent: {decision.name}")
             
+            # --- INTELLIGENCE LAYER: Context & Conversational Override ---
+            action_intents = {
+                "power_action", "clear_clipboard", "empty_trash", "kill_task", 
+                "lock_pc", "restart_engine", "wifi_action", "theme_toggle", 
+                "set_brightness", "open_task_manager"
+            }
+            
+            if decision.name in action_intents:
+                # 1. Check for conversational questions
+                question_patterns = [
+                    r'^(should i|why|how|am i|can i|do i|is it|what if|would it|could i|whats|what is)\b',
+                    r'\b(instead|then|anyway|even|explain|look into)\b',
+                    r'\?'
+                ]
+                is_question = any(re.search(pattern, text_lower) for pattern in question_patterns)
+                
+                # Exceptions where 'can i' or 'do i' actually mean the command
+                if is_question and not re.search(r'^(can you|please|i want to|i need you to)', text_lower):
+                    print(f"[Gatekeeper] Override: Detected conversational inquiry for action '{decision.name}'. Routing to LLM...")
+                    return None
+                    
+            # 2. Specific intent overrides
+            if decision.name == "clear_clipboard":
+                if any(word in text_lower for word in ["copy", "save", "write", "logs", "read"]):
+                    print(f"[Gatekeeper] Override: Detected 'copy' intent rather than 'clear'. Routing to LLM...")
+                    return None
+            # -----------------------------------------------------------
+            
             if decision.name == "coding":
                 return "__CODING__"
             

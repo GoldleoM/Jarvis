@@ -3,8 +3,10 @@ import concurrent.futures
 import time as _time
 import re
 import os
+import threading
 import logging
 import warnings
+from power_monitor import PowerMonitor, get_power_state, get_optimal_device, get_compute_type, find_fallback_model
 
 # --- Suppress Verbose Library Logs ---
 os.environ["HF_HUB_DISABLE_SYMLINKS_WARNING"] = "1"
@@ -18,7 +20,11 @@ logging.getLogger("huggingface_hub").setLevel(logging.ERROR)
 import sounddevice as sd
 import numpy as np
 from stt import SpeechToText
-from tts import TextToSpeech
+import config
+if config.TTS_ENGINE == "kokoro":
+    from tts_kokoro import TextToSpeech
+else:
+    from tts import TextToSpeech
 from router import Gatekeeper
 
 
@@ -119,18 +125,51 @@ class VoiceEngine:
         import subprocess
         import sys
         creationflags = subprocess.CREATE_NO_WINDOW if sys.platform == 'win32' else 0
-        self.opencode_process = subprocess.Popen(
-            'opencode --agent Jarvis --model google/gemma-4-31b-it --port 4096',
-            shell=True,
-            creationflags=creationflags
-        )
+        import shutil
+        opencode_cmd = shutil.which("opencode")
+        if opencode_cmd:
+            self.opencode_process = subprocess.Popen(
+                [opencode_cmd, '--agent', 'Jarvis', '--model', 'google/gemma-4-31b-it', '--port', '4096'],
+                creationflags=creationflags
+            )
+        else:
+            self.opencode_process = subprocess.Popen(
+                'opencode --agent Jarvis --model google/gemma-4-31b-it --port 4096',
+                shell=True,
+                creationflags=creationflags
+            )
         self.queue = asyncio.Queue(maxsize=20)
         self.executor = concurrent.futures.ThreadPoolExecutor(max_workers=3)
         self.current_task = None
         self.loop = None
+        self.power_monitor = None
+        self._power_switch_lock = threading.Lock()
 
         import config
         self.wake_word = getattr(config, "WAKE_WORD", "jarvis")
+        self._init_state()
+
+    def _cleanup_opencode(self):
+        """Terminate the opencode background process and its children."""
+        if hasattr(self, 'opencode_process') and self.opencode_process:
+            try:
+                import psutil
+                parent = psutil.Process(self.opencode_process.pid)
+                for child in parent.children(recursive=True):
+                    child.terminate()
+                parent.terminate()
+                parent.wait(timeout=3)
+            except Exception:
+                try:
+                    self.opencode_process.terminate()
+                    self.opencode_process.wait(timeout=3)
+                except Exception:
+                    self.opencode_process.kill()
+            self.opencode_process = None
+            print("[System] OpenCode session terminated.")
+
+    def _init_state(self):
+        """Initialize conversation state variables. Called from __init__."""
         self.is_active = False
         self.last_active_time = 0
         self.activity_timeout = 10
@@ -194,17 +233,26 @@ class VoiceEngine:
         current_mic = getattr(config, "MIC_INDEX", None)
         current_whisper = getattr(config, "WHISPER_MODEL", "medium.en")
         current_compute = getattr(config, "WHISPER_COMPUTE_TYPE", "float16")
+        current_device = getattr(config, "WHISPER_DEVICE", "cuda")
         
         needs_stt_reload = False
         new_mic = settings_dict.get("MIC_INDEX", current_mic)
         new_whisper = settings_dict.get("WHISPER_MODEL", current_whisper)
         new_compute = settings_dict.get("WHISPER_COMPUTE_TYPE", current_compute)
+        new_device = settings_dict.get("WHISPER_DEVICE", current_device)
         
-        if new_mic != current_mic or new_whisper != current_whisper or new_compute != current_compute:
+        # Handle "auto" device — resolve based on current power state
+        if new_device == "auto":
+            plugged, _ = get_power_state()
+            new_device = get_optimal_device(plugged)
+            new_compute = get_compute_type(new_device)
+            print(f"[System] Auto device resolved to: {new_device}/{new_compute}")
+        
+        if new_mic != current_mic or new_whisper != current_whisper or new_compute != current_compute or new_device != current_device:
             needs_stt_reload = True
             
         if needs_stt_reload:
-            print("[System] Audio streams/models changed. Restarting STT engine safely...")
+            print(f"[System] Audio streams/models changed. Restarting STT engine safely... (device={new_device})")
             if self.stt:
                 # Need to use an executor to stop the threads to prevent blocking the event loop
                 await self.loop.run_in_executor(self.executor, self.stt.stop_listening)
@@ -216,7 +264,7 @@ class VoiceEngine:
                 if 'config' in sys.modules:
                     importlib.reload(sys.modules['config'])
                 from stt import SpeechToText
-                self.stt = SpeechToText(model_size=new_whisper, compute_type=new_compute, debug_volume=self.debug)
+                self.stt = SpeechToText(model_size=new_whisper, device=new_device, compute_type=new_compute, debug_volume=self.debug)
                 self.stt.on_partial = self.stt_partial_callback
                 
             await self.loop.run_in_executor(self.executor, _reload_stt)
@@ -228,6 +276,113 @@ class VoiceEngine:
             print("[System] STT Hot Reload Complete.")
             
         self._set_ui_state("idle", "ONLINE")
+
+    # ---------- POWER-AWARE STT SWITCHING ----------
+
+    def _on_power_change(self, new_device, new_compute):
+        """Called by PowerMonitor from its background thread when AC/battery changes."""
+        if not self._power_switch_lock.acquire(blocking=False):
+            print("[PowerMonitor] Switch already in progress, skipping.")
+            return
+        try:
+            import config
+            current_model = getattr(config, "WHISPER_MODEL", "medium.en")
+
+            print(f"\n[PowerMonitor] ⚡ Switching STT: {new_device}/{new_compute} (model: {current_model})")
+            self._set_ui_state("thinking", "SWITCHING DEVICE...")
+
+            # Stop current STT
+            if self.stt:
+                try:
+                    self.stt.stop_listening()
+                except Exception:
+                    pass
+
+            # Try loading with current model first
+            from stt import SpeechToText
+            target_model = current_model
+            target_compute = new_compute
+            loaded = False
+
+            try:
+                self.stt = SpeechToText(
+                    model_size=target_model,
+                    device=new_device,
+                    compute_type=target_compute,
+                    debug_volume=self.debug
+                )
+                loaded = True
+                print(f"[PowerMonitor] ✓ Loaded '{target_model}' on {new_device}/{target_compute}")
+            except Exception as e:
+                print(f"[PowerMonitor] ✗ Failed to load '{target_model}' on {new_device}/{target_compute}: {e}")
+
+            # Fallback: try smaller models
+            if not loaded:
+                print(f"[PowerMonitor] Trying fallback models...")
+                result = find_fallback_model(target_model, new_device)
+                if result:
+                    target_model, target_compute = result
+                    try:
+                        self.stt = SpeechToText(
+                            model_size=target_model,
+                            device=new_device,
+                            compute_type=target_compute,
+                            debug_volume=self.debug
+                        )
+                        loaded = True
+                        print(f"[PowerMonitor] ✓ Fallback loaded '{target_model}' on {new_device}/{target_compute}")
+                    except Exception as e:
+                        print(f"[PowerMonitor] ✗ Fallback also failed: {e}")
+
+            if not loaded:
+                print("[PowerMonitor] ⚠ CRITICAL: Could not load any STT model! Attempting emergency CPU/tiny.en...")
+                try:
+                    self.stt = SpeechToText(model_size="tiny.en", device="cpu", compute_type="float32", debug_volume=self.debug)
+                    target_model = "tiny.en"
+                    new_device = "cpu"
+                    target_compute = "float32"
+                    loaded = True
+                except Exception:
+                    print("[PowerMonitor] ⚠ FATAL: No STT model could be loaded.")
+                    self._set_ui_state("idle", "STT ERROR")
+                    return
+
+            # Reconnect STT
+            self.stt.on_partial = self.stt_partial_callback
+
+            # Re-wrap TTS speak for mute coordination
+            if self.tts:
+                original_speak = self.tts._original_speak if hasattr(self.tts, '_original_speak') else self.tts.speak
+                self.tts._original_speak = original_speak
+                def _speak_wrapper(text, _stt_ref=self.stt, _orig=original_speak):
+                    if _stt_ref:
+                        _stt_ref.is_muted = True
+                        if hasattr(_stt_ref, 'audio_queue'):
+                            with _stt_ref.audio_queue.mutex:
+                                _stt_ref.audio_queue.queue.clear()
+                    try:
+                        _orig(text)
+                    finally:
+                        if _stt_ref:
+                            if hasattr(_stt_ref, 'audio_queue'):
+                                with _stt_ref.audio_queue.mutex:
+                                    _stt_ref.audio_queue.queue.clear()
+                            _stt_ref.flush_requested = True
+                            _stt_ref.is_muted = False
+                self.tts.speak = _speak_wrapper
+
+            mic_index = getattr(config, "MIC_INDEX", None)
+            self.stt.start_listening(self.stt_callback, device_index=mic_index)
+
+            state_label = "AC Power (CUDA)" if new_device == "cuda" else "Battery (CPU)"
+            print(f"[PowerMonitor] ✓ STT fully switched → {state_label} | model={target_model} | compute={target_compute}")
+            self._set_ui_state("idle", "ONLINE")
+
+        except Exception as e:
+            print(f"[PowerMonitor] ERROR during switch: {e}")
+            self._set_ui_state("idle", "ONLINE")
+        finally:
+            self._power_switch_lock.release()
 
     # ---------- LOGIC ----------
 
@@ -284,6 +439,7 @@ class VoiceEngine:
                 except:
                     pass
                 self._set_ui_state("idle", "OFFLINE")
+                self._cleanup_opencode()
                 if getattr(self, 'ui_mode', False):
                     from PySide6.QtWidgets import QApplication
                     app = QApplication.instance()
@@ -413,6 +569,7 @@ class VoiceEngine:
                 except:
                     pass
                 self._set_ui_state("idle", "RESTARTING")
+                self._cleanup_opencode()
                 
                 import sys, subprocess, os
                 subprocess.Popen([sys.executable] + sys.argv)
@@ -632,6 +789,15 @@ class VoiceEngine:
                 self._set_ui_state("idle", "ONLINE")
 
         asyncio.create_task(_warmup_and_greet())
+
+        # Start Power Monitor (auto-switch CUDA/CPU on AC/battery)
+        plugged, batt = get_power_state()
+        if batt is not None:
+            print(f"[PowerMonitor] Laptop detected — battery={batt}%, plugged={'Yes' if plugged else 'No'}")
+            self.power_monitor = PowerMonitor(self._on_power_change, poll_interval=15)
+            self.power_monitor.start()
+        else:
+            print("[PowerMonitor] Desktop detected — CUDA will be used permanently.")
 
         try:
             while True:
