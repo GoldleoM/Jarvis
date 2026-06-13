@@ -15,3 +15,9 @@ deps.txt
 models/
 *.wav
 test_*.py
+
+# User-specific data
+contacts.json
+config.json
+*.tmp
+*.bak
