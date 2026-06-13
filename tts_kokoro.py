@@ -15,6 +15,10 @@ os.environ['PHONEMIZER_ESPEAK_LIBRARY'] = os.path.join(
 )
 
 import warnings
+
+# Force CPU to avoid cuDNN version conflicts
+os.environ['CUDA_VISIBLE_DEVICES'] = '-1'
+
 from kokoro import KPipeline
 
 
@@ -32,7 +36,8 @@ class TextToSpeech:
             lang_code = getattr(config, 'KOKORO_LANG_CODE', 'b')
             with warnings.catch_warnings():
                 warnings.simplefilter('ignore')
-                self._pipeline = KPipeline(lang_code=lang_code, repo_id='hexgrad/Kokoro-82M')
+                # Use CPU explicitly to avoid cuDNN version conflicts
+                self._pipeline = KPipeline(lang_code=lang_code, repo_id='hexgrad/Kokoro-82M', device='cpu')
         return self._pipeline
 
     def _sanitize_text(self, text):
