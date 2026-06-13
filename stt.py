@@ -27,8 +27,8 @@ class SpeechToText:
         try:
             self.model = faster_whisper.WhisperModel(model_size, device=device, compute_type=compute_type)
         except Exception as e:
-            print(f"[WARNING] Failed to load with {compute_type}: {e}. Falling back to float32...")
-            self.model = faster_whisper.WhisperModel(model_size, device=device, compute_type="float32")
+            print(f"[WARNING] Failed to load with {compute_type} on {device}: {e}. Falling back to CPU with float32...")
+            self.model = faster_whisper.WhisperModel(model_size, device="cpu", compute_type="float32")
         
         # VAD Settings (Silero VAD)
         self.vad_model, _ = torch.hub.load(repo_or_dir='snakers4/silero-vad', model='silero_vad')
@@ -58,12 +58,14 @@ class SpeechToText:
         try:
             # RMS gate to ignore pure silence before running the model
             rms = np.sqrt(np.mean(audio_chunk**2))
-            if rms < 0.01: 
+            if rms < 0.0005: 
                 return False
                 
             audio_tensor = torch.tensor(audio_chunk, dtype=torch.float32)
             confidence = self.vad_model(audio_tensor, self.sample_rate).item()
-            return confidence > 0.5
+            import config
+            threshold = getattr(config, "VAD_THRESHOLD", 0.5)
+            return confidence > threshold
         except Exception as e:
             print(f"[ERROR] VAD Error: {e}")
             return False
@@ -114,15 +116,27 @@ class SpeechToText:
         return text
 
     def start_listening(self, callback, device_index=None):
+        if device_index is None:
+            device_index = getattr(self, 'mic_index', None)
+            
         self.audio_queue = queue.Queue()
         self.partial_queue = queue.Queue(maxsize=1)
         self.stop_event = threading.Event()
 
         def producer():
             def audio_callback(indata, frames, time, status):
+                if getattr(self, 'is_muted', False):
+                    return
                 if status:
                     print(f"Error: {status}")
                 self.audio_queue.put(indata.copy())
+
+            try:
+                import sounddevice as sd
+                device_info = sd.query_devices(device=device_index, kind='input')
+                print(f"[System] Listening on mic: {device_info['name']} (Index: {device_index})")
+            except Exception as e:
+                print(f"[System] Listening on default mic. (Index: {device_index})")
 
             with sd.InputStream(samplerate=self.sample_rate, 
                                 channels=1, 
@@ -154,6 +168,14 @@ class SpeechToText:
                         bar = "#" * bar_len + "-" * (20 - bar_len)
                         print(f"\rVolume: [{bar}] {rms:.4f}", end="")
 
+                    if getattr(self, 'flush_requested', False):
+                        audio_buffer = []
+                        pre_record_buffer.clear()
+                        is_recording = False
+                        speech_frames_count = 0
+                        silence_frames_count = 0
+                        self.flush_requested = False
+                        
                     if not is_recording:
                         pre_record_buffer.append(chunk_flat)
 

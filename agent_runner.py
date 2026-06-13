@@ -12,7 +12,6 @@ async def get_active_session():
                 print(f"[AgentRunner] GET /api/session returned status: {response.status}")
                 if response.status == 200:
                     data = await response.json()
-                    print(f"[AgentRunner] Session data received: {data}")
                     # data is a dictionary with an 'items' array
                     if isinstance(data, dict) and 'items' in data and len(data['items']) > 0:
                         # Grab the most recent session ID
@@ -95,13 +94,32 @@ async def run_opencode_task(command: str):
                     finish_reason = data.get("info", {}).get("finish")
                     if finish_reason and finish_reason != "stop":
                         print("[AgentRunner] AI is using tools. Polling for final response...")
+                        seen_msg_ids = set()
+                        if data.get("id"):
+                            seen_msg_ids.add(data.get("id"))
+                        
+                        for part in data.get("parts", []):
+                            if part.get("type") == "toolCall":
+                                name = part.get("toolCall", {}).get("name", "unknown_tool")
+                                print(f"[AgentRunner] 🛠️  Jarvis is using tool: {name}")
+
                         while True:
                             await asyncio.sleep(2)
-                            poll_url = f"http://127.0.0.1:4096/session/{session_id}/message?limit=1"
+                            poll_url = f"http://127.0.0.1:4096/session/{session_id}/message?limit=10"
                             async with session.get(poll_url) as poll_res:
                                 if poll_res.status == 200:
                                     poll_data = await poll_res.json()
                                     if poll_data and len(poll_data) > 0:
+                                        for msg in reversed(poll_data):
+                                            msg_id = msg.get("id")
+                                            if msg_id and msg_id not in seen_msg_ids:
+                                                seen_msg_ids.add(msg_id)
+                                                if msg.get("info", {}).get("role") == "assistant":
+                                                    for part in msg.get("parts", []):
+                                                        if part.get("type") == "toolCall":
+                                                            name = part.get("toolCall", {}).get("name", "unknown_tool")
+                                                            print(f"[AgentRunner] 🛠️  Jarvis is using tool: {name}")
+
                                         latest_msg = poll_data[0]
                                         info = latest_msg.get("info", {})
                                         if info.get("role") == "assistant" and info.get("finish") == "stop":
@@ -196,13 +214,32 @@ async def run_writer_task(prompt: str):
                     
                     finish_reason = data.get("info", {}).get("finish")
                     if finish_reason and finish_reason != "stop":
+                        seen_msg_ids = set()
+                        if data.get("id"):
+                            seen_msg_ids.add(data.get("id"))
+                            
+                        for part in data.get("parts", []):
+                            if part.get("type") == "toolCall":
+                                name = part.get("toolCall", {}).get("name", "unknown_tool")
+                                print(f"[AgentRunner] 🛠️  Jarvis is using tool: {name}")
+
                         while True:
                             await asyncio.sleep(2)
-                            poll_url = f"http://127.0.0.1:4096/session/{session_id}/message?limit=1"
+                            poll_url = f"http://127.0.0.1:4096/session/{session_id}/message?limit=10"
                             async with session.get(poll_url) as poll_res:
                                 if poll_res.status == 200:
                                     poll_data = await poll_res.json()
                                     if poll_data and len(poll_data) > 0:
+                                        for msg in reversed(poll_data):
+                                            msg_id = msg.get("id")
+                                            if msg_id and msg_id not in seen_msg_ids:
+                                                seen_msg_ids.add(msg_id)
+                                                if msg.get("info", {}).get("role") == "assistant":
+                                                    for part in msg.get("parts", []):
+                                                        if part.get("type") == "toolCall":
+                                                            name = part.get("toolCall", {}).get("name", "unknown_tool")
+                                                            print(f"[AgentRunner] 🛠️  Jarvis is using tool: {name}")
+
                                         latest_msg = poll_data[0]
                                         info = latest_msg.get("info", {})
                                         if info.get("role") == "assistant" and info.get("finish") == "stop":

@@ -3,31 +3,112 @@ import re
 
 def execute_skill(intent_name, text=""):
     if intent_name == "open_app":
-        # Extract the app name using a regex
-        match = re.search(r'(?:open|launch|start)\s+(.+)', text.lower())
+        # Extract the app name using a regex, stop at punctuation
+        match = re.search(r'(?:open|launch|start|run)\s+([a-zA-Z0-9\s]+)', text.lower())
+        app_name = ""
         if match:
             app_name = match.group(1).strip()
-            import pyautogui
-            import time
-            pyautogui.press('win')
-            time.sleep(0.5)
-            pyautogui.write(app_name, interval=0.05)
-            time.sleep(0.5)
-            pyautogui.press('enter')
-            return f"Opening {app_name}, sir."
+            # In case it captured too much, just take the first 3 words
+            app_name = " ".join(app_name.split()[:3])
+        else:
+            # Fallback if Semantic Router routed here without those verbs
+            app_name = text.lower().replace("please", "").replace("play", "").strip()
+            app_name = re.sub(r'[^a-zA-Z0-9\s]', '', app_name)
+            app_name = " ".join(app_name.split()[:3])
+            
+        if app_name:
+            
+            import json
+            import difflib
+            
+            apps_json_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "apps.json")
+            if not os.path.exists(apps_json_path):
+                import sys
+                sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+                try:
+                    from app_scanner import scan_apps
+                    scan_apps()
+                except Exception as e:
+                    print(f"Failed to run app scanner: {e}")
+            
+            try:
+                with open(apps_json_path, 'r', encoding='utf-8') as f:
+                    apps_dict = json.load(f)
+                    
+                matches = difflib.get_close_matches(app_name, apps_dict.keys(), n=1, cutoff=0.5)
+                if matches:
+                    best_match = matches[0]
+                    app_path = apps_dict[best_match]
+                    try:
+                        os.startfile(app_path)
+                        return f"Opening {best_match}, sir."
+                    except Exception as e:
+                        print(f"Failed to launch {best_match} via path: {e}")
+            except Exception as e:
+                print(f"Error fuzzy matching apps: {e}")
+            
+            try:
+                import pyautogui
+                import time
+                pyautogui.press('win')
+                time.sleep(0.5)
+                pyautogui.write(app_name, interval=0.05)
+                time.sleep(0.5)
+                pyautogui.press('enter')
+                return f"Opening {app_name}, sir."
+            except Exception as e:
+                print(f"PyAutoGUI fallback failed: {e}")
+                return "I ran into an issue launching that app, sir."
         return "I didn't catch the app name, sir."
 
-    elif intent_name == "type_text":
-        match = re.search(r'(?:type for me|dictate this|type out)(?:\s+(?:that|this))*\s+(.+)', text.lower(), re.IGNORECASE)
+    elif intent_name == "kill_task":
+        match = re.search(r'(?:close|shut down|quit|exit)\s+([a-zA-Z0-9\s]+)', text.lower())
         if match:
-            content = match.group(1).strip()
+            app_name = match.group(1).strip()
+            # Just grab first 3 words to avoid eating the sentence
+            app_name = " ".join(app_name.split()[:3])
+            # Common mappings
+            app_map = {"spotify": "spotify.exe", "chrome": "chrome.exe", "discord": "discord.exe", "whatsapp": "whatsapp.exe", "calculator": "calculator.exe"}
+            process_name = app_map.get(app_name.lower(), f"{app_name.replace(' ', '')}.exe")
+            
+            os.system(f"taskkill /F /IM {process_name} /T")
+            return f"Closing {app_name}, sir."
+        return "Which app would you like me to close?"
+
+    elif intent_name == "type_text":
+        match = re.search(r'(?:type|dictate|write)(?:\s+(?:for me|out|down|this|that|exactly))*\s+(.+)', text.lower(), re.IGNORECASE)
+        content = match.group(1).strip() if match else text.lower().replace("type", "").strip()
+        if content:
             import pyautogui
             pyautogui.write(content, interval=0.02)
             return "Typed it out for you, sir."
         return "What would you like me to type?"
 
+    elif intent_name == "ghostwriter":
+        match = re.search(r'(?:draft|write|compose|generate|type out)\s+(?:an?|some)?\s*(?:email|message|prompt|reply|letter|essay|text)(?:\s+(?:saying|about|asking|to|for|that))?\s+(.+)', text.lower(), re.IGNORECASE)
+        prompt = match.group(1).strip() if match else text
+        return f"__WRITER__{prompt}"
+
+    elif intent_name == "press_key":
+        import pyautogui
+        if "enter" in text.lower() or "return" in text.lower():
+            pyautogui.press("enter")
+            return "Pressed Enter."
+        elif "space" in text.lower():
+            pyautogui.press("space")
+            return "Pressed Space."
+        elif "backspace" in text.lower() or "delete" in text.lower():
+            pyautogui.press("backspace")
+            return "Pressed Backspace."
+        elif "escape" in text.lower() or "esc" in text.lower():
+            pyautogui.press("escape")
+            return "Pressed Escape."
+        elif "tab" in text.lower():
+            pyautogui.press("tab")
+            return "Pressed Tab."
+        return "I am not sure which key to press."
+
     elif intent_name == "notes_mode":
-        import os
         os.system("start notepad")
         return "__NOTES_MODE__"
         
@@ -68,12 +149,26 @@ def execute_skill(intent_name, text=""):
                 return f"Playing {query} on YouTube, sir."
             except Exception as e:
                 import urllib.parse
-                import os
                 url = f"https://www.youtube.com/results?search_query={urllib.parse.quote(query)}"
                 os.system(f"start {url}")
                 return f"Searching YouTube for {query}, sir."
         return "__CONTEXT__youtube_search__What would you like me to find on YouTube?"
 
+
+    elif intent_name == "spotify":
+        match = re.search(r'(?:play|listen to|put on)\s+([a-zA-Z0-9\s\.\,\'\-]+?)(?:\s+on spotify)?$', text.lower())
+        if match:
+            query = match.group(1).strip().replace('some ', '')
+            if query in ['music', 'spotify', 'a song', '']:
+                os.system("start spotify:")
+                return "Opening Spotify, sir."
+            import urllib.parse
+            safe_query = urllib.parse.quote(query)
+            os.system(f"start spotify:search:{safe_query}")
+            return f"Pulling up {query} on Spotify, sir."
+        else:
+            os.system("start spotify:")
+            return "Opening Spotify, sir."
 
     elif intent_name == "wikipedia":
         match = re.search(r'(?:who is|what is|define|tell me about|who was|what are|meaning of|explain what is|search wikipedia for)\s+(.+)', text.lower())
@@ -195,7 +290,6 @@ def execute_skill(intent_name, text=""):
             
             import json
             import difflib
-            import os
             contacts_file = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'contacts.json')
             if os.path.exists(contacts_file):
                 try:
@@ -232,7 +326,6 @@ def execute_skill(intent_name, text=""):
             if '.' not in site:
                 site = f"{site}.com"
                 
-            import os
             os.system(f"start https://{site}")
             return f"Opening {site}, sir."
         return "Which website would you like me to open?"

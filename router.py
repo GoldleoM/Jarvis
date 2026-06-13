@@ -31,7 +31,7 @@ class Gatekeeper:
         # Sleep
         self.sleep_route = Route(name="sleep_action", utterances=[
             'jarvis', 'stop', 'quiet', 'shut up', 'uhh', 'umm', 'stop speaking', 'shh', 'be quiet', 
-            'enough', 'stop talking', 'wait', 'hold on', 'pause', 'abort', "don't worry about it", 
+            'enough', 'stop talking', 'wait', 'hold on', 'abort', "don't worry about it", 
             'nevermind jarvis', 'stop it', 'stop jarvis', 'skip', 'mute', 'unmute', 'volume zero', 
             'silence', 'shut your mouth', 'zip it', 'button it', 'put a sock in it', 'give it a rest', 
             'take a break', 'stop right there', 'halt', 'cease', 'desist', 'drop it', 'let it go', 
@@ -41,11 +41,12 @@ class Gatekeeper:
         self.minimize_windows_route = Route(name="minimize_windows", utterances=['can you go to desktop', 'can you clear the screen', 'show the desktop', 'quickly minimize windows', 'clear the screen', 'can you get rid of these windows', 'quickly hide everything', 'please show the desktop', 'quickly show the desktop', 'can you minimize all windows', 'please get rid of these windows', 'quickly clear the screen', 'quickly minimize all windows', 'please show my wallpaper', 'minimize windows', 'can you minimize windows', 'can you show my wallpaper', 'minimize my apps', 'can you hide everything', 'hide all windows', 'minimize all windows', 'go to desktop', 'quickly minimize my apps', 'quickly get rid of these windows', 'quickly go to desktop', 'please clear the screen', 'please hide all windows', 'can you minimize my apps', 'can you show the desktop', 'hide everything', 'show my wallpaper', 'please go to desktop', 'please minimize all windows', 'quickly show my wallpaper', 'please hide everything', 'can you hide all windows', 'quickly hide all windows', 'get rid of these windows', 'please minimize windows', 'please minimize my apps'])
         self.close_window_route = Route(name="close_window", utterances=['quit this program', 'please quit the active program', 'please exit this screen', 'jarvis terminate this app', 'can you close this window', 'terminate this app', 'close the active window', 'please exit the app', 'can you exit the app', 'quit the active program', 'exit the app', 'jarvis close the active window', 'close what i am looking at', 'can you quit this program', 'please quit this program', 'jarvis close the current app', 'can you exit this screen', 'can you quit the active program', 'can you close what i am looking at', 'jarvis close what i am looking at', 'jarvis quit the active program', 'please shut this window', 'jarvis quit this program', 'please terminate this app', 'please close the current app', 'jarvis close this window', 'jarvis exit the app', 'jarvis exit this screen', 'can you shut this window', 'jarvis shut this window', 'please close what i am looking at', 'close this window', 'please close this window', 'exit this screen', 'can you close the current app', 'close the current app', 'can you close the active window', 'can you terminate this app', 'shut this window', 'please close the active window'])
         self.screenshot_route = Route(name="take_screenshot", utterances=["take a screenshot", "screenshot the screen", "capture the screen"])
+        self.restart_engine_route = Route(name="restart_engine", utterances=["restart yourself", "jarvis restart the engine", "reboot yourself", "jarvis restart yourself", "restart the application", "restart the app", "restart the system", "reboot the engine"])
 
         # Media & Volume
-        self.media_play_pause_route = Route(name="media_play_pause", utterances=['please toggle playback', 'please stop playing', 'stop the audio', 'can you play this', 'can you toggle playback', 'please play the media', 'can you play the media', 'can you pause the music', 'toggle playback', 'please pause the music', 'please play the music', 'please resume playback', 'can you stop the audio', 'can you resume playback', 'resume playback', 'please stop the audio', 'please pause this', 'can you play the music', 'play the media', 'pause the music', 'pause the video', 'can you pause the video', 'can you stop playing', 'please play this', 'play this', 'can you pause this', 'pause this', 'play the music', 'please pause the video', 'stop playing'])
-        self.media_next_route = Route(name="media_next", utterances=['please go to the next song', 'play the next one', 'can you play the next one', 'can you skip forward', 'skip music', 'next song', 'can you skip this track', 'skip forward', 'can you skip music', 'next media', 'can you skip song', 'please forward track', 'can you forward track', 'please next media', 'please skip song', 'please skip this track', 'please skip forward', 'go to the next song', 'skip this track', 'please skip music', 'please play the next one', 'skip song', 'please next song', 'forward track', 'please next track', 'can you next song', 'can you go to the next song', 'can you next media', 'next track', 'can you next track'])
-        self.media_prev_route = Route(name="media_prev", utterances=['previous media', 'play the last song', 'please back track', 'please play the last song', 'can you previous track', 'please play that again', 'can you previous song', 'can you rewind track', 'rewind track', 'can you go to the previous music', 'please last song', 'please previous song', 'previous song', 'please previous media', 'can you last song', 'can you back track', 'can you previous media', 'please previous track', 'can you go back a track', 'last song', 'previous track', 'please go back a track', 'can you play the last song', 'can you play that again', 'go back a track', 'please go to the previous music', 'back track', 'play that again', 'go to the previous music', 'please rewind track'])
+        self.media_play_pause_route = Route(name="media_play_pause", utterances=['play', 'pause', 'stop', 'resume', 'please toggle playback', 'please stop playing', 'stop the audio', 'can you play this', 'can you toggle playback', 'please play the media', 'can you play the media', 'can you pause the music', 'toggle playback', 'please pause the music', 'please play the music', 'please resume playback', 'can you stop the audio', 'can you resume playback', 'resume playback', 'please stop the audio', 'please pause this', 'can you play the music', 'play the media', 'pause the music', 'pause the video', 'can you pause the video', 'can you stop playing', 'please play this', 'play this', 'can you pause this', 'pause this', 'play the music', 'please pause the video', 'stop playing'])
+        self.media_next_route = Route(name="media_next", utterances=['next', 'skip', 'please go to the next song', 'play the next one', 'can you play the next one', 'can you skip forward', 'skip music', 'next song', 'can you skip this track', 'skip forward', 'can you skip music', 'next media', 'can you skip song', 'please forward track', 'can you forward track', 'please next media', 'please skip song', 'please skip this track', 'please skip forward', 'go to the next song', 'skip this track', 'please skip music', 'please play the next one', 'skip song', 'please next song', 'forward track', 'please next track', 'can you next song', 'can you go to the next song', 'can you next media', 'next track', 'can you next track'])
+        self.media_prev_route = Route(name="media_prev", utterances=['previous', 'back', 'go back', 'previous media', 'play the last song', 'please back track', 'please play the last song', 'can you previous track', 'please play that again', 'can you previous song', 'can you rewind track', 'rewind track', 'can you go to the previous music', 'please last song', 'please previous song', 'previous song', 'please previous media', 'can you last song', 'can you back track', 'can you previous media', 'please previous track', 'can you go back a track', 'last song', 'previous track', 'please go back a track', 'can you play the last song', 'can you play that again', 'go back a track', 'please go to the previous music', 'back track', 'play that again', 'go to the previous music', 'please rewind track'])
         self.volume_up_route = Route(name="volume_up", utterances=['please turn it up', 'turn the volume up', 'turn it up', 'can you turn the sound up', 'please turn the volume up', 'increase sound', 'can you make it louder', 'can you turn it up', 'can you sound up', 'can you louder please', 'louder please', 'please increase the volume', 'can you volume up', 'please pump up the volume', 'can you increase the volume', 'please increase sound', 'please turn the sound up', 'please louder please', 'make it louder', 'sound up', 'please make it louder', 'volume up', 'pump up the volume', 'can you pump up the volume', 'can you increase sound', 'turn the sound up', 'increase the volume', 'can you turn the volume up', 'please volume up', 'please sound up'])
         self.volume_down_route = Route(name="volume_down", utterances=['volume down', 'can you sound down', 'can you turn the volume down', 'turn it down', 'please lower the volume', 'turn the volume down', 'please turn the audio down', 'can you reduce the sound', 'please volume down', 'turn the audio down', 'decrease the volume', 'lower the volume', 'can you turn it down', 'can you lower the volume', 'please turn the volume down', 'please turn it down', 'please sound down', 'can you make it quieter', 'can you volume down', 'quieter please', 'reduce the sound', 'can you quieter please', 'can you turn the audio down', 'please reduce the sound', 'please make it quieter', 'please decrease the volume', 'please quieter please', 'can you decrease the volume', 'make it quieter', 'sound down'])
         self.volume_mute_route = Route(name="volume_mute", utterances=['please stop the sound', 'can you turn off the sound', 'mute my pc', 'please mute my pc', 'please mute the sound', 'mute computer', 'please mute the volume', 'can you cut the audio', 'can you mute computer', 'please silence it', 'cut the audio', 'can you mute the sound', 'please silence the audio', 'can you mute the volume', 'can you mute it', 'can you silence it', 'please turn off the sound', 'please mute computer', 'mute the volume', 'silence the audio', 'can you mute my pc', 'turn off the sound', 'please mute it', 'please cut the audio', 'can you stop the sound', 'stop the sound', 'mute the sound', 'can you silence the audio', 'mute it', 'silence it'])
@@ -68,12 +69,13 @@ class Gatekeeper:
         # Deep Windows Controls
         self.flush_dns_route = Route(name="flush_dns", utterances=["flush dns", "reset the dns cache", "clear the dns cache", "flush my network dns", "reset my network connection"])
         self.clear_temp_route = Route(name="clear_temp_files", utterances=["clear temporary files", "clean my system cache", "delete temp files", "empty my temp folder", "clean up my temporary files", "clear windows cache"])
-        self.kill_task_route = Route(name="kill_task", utterances=["force close chrome", "kill notepad task", "terminate discord", "force quit spotify", "end task visual studio", "kill the process", "force close this application"])
+        self.kill_task_route = Route(name="kill_task", utterances=['close this app', 'can you close spotify', 'please close whatsapp', 'i want to close discord', 'shut down chrome', 'exit this program', 'jarvis close the calculator', 'please shut down the application', 'can you close this program', 'stop spotify', 'force close it', 'close the app', 'please close the program', 'kill the process', 'terminate the application', 'i need you to close this app', 'can you shut down discord', 'please exit chrome', 'close whatsapp please', 'shut down the app', 'close it', 'please close it'])
         self.theme_toggle_route = Route(name="theme_toggle", utterances=["turn on dark mode", "enable dark mode", "switch to light mode", "turn on light theme", "enable dark theme", "change windows to dark mode"])
         self.set_brightness_route = Route(name="set_brightness", utterances=["set brightness to 50", "change screen brightness to 100", "turn down the brightness to 20", "make the screen brightness 70 percent"])
 
 
         # Generalized Apps & Search
+        self.spotify_route = Route(name="spotify", utterances=['play starboy on spotify', 'play music on spotify', 'listen to drake on spotify', 'play the weeknd on spotify', 'spotify play blinding lights', 'play on spotify'])
         self.open_website_route = Route(name="open_website", utterances=[
             "open amazon.com", "go to youtube.com", "open a website", "launch google.com", "go to facebook.com",
             "open the website", "open the url", "go to the link", "browse to", "navigate to", "open web page",
@@ -93,7 +95,9 @@ class Gatekeeper:
         self.call_route = Route(name="call", utterances=['can you phone someone', 'please phone someone', 'i want to start a call', 'make a phone call', 'please dial a number', 'can you make a voice call', 'dial a number', 'i want to make a phone call', 'can you voice call', 'please voice call', 'phone someone', 'i want to i need to call', 'i want to make a voice call', 'i want to call my friend', 'i need to call', 'voice call', 'please call my friend', 'make a voice call', 'i want to voice call', 'can you make a phone call', 'call my friend', 'can you start a call', 'start a call', 'call a contact', 'can you i need to call', 'can you call my friend', 'i want to phone someone', 'please make a voice call', 'call someone', 'please call someone', 'i want to dial a number', 'please i need to call', 'i want to call a contact', 'i want to call someone', 'can you dial a number', 'please start a call', 'please make a phone call', 'please call a contact', 'can you call someone', 'can you call a contact'])
         self.writer_route = Route(name="writer", utterances=[])
         self.coding_route = Route(name="coding", utterances=['please write some code', 'fix the bug', 'write some code', 'can you debug this program', 'i want to run opencode', 'please build an app', 'code a website', 'i want to build an app', 'i want to analyze this code', 'build an app', 'program a script', 'i want to write a python script', 'can you run opencode', 'analyze this code', 'please code a website', 'please analyze this code', 'can you code a website', 'can you write some code', 'please run opencode', 'i want to debug this program', 'can you analyze this code', 'debug this program', 'i want to program a script', 'can you write a python script', 'please fix the bug', 'i want to write some code', 'write a python script', 'i want to code a website', 'can you program a script', 'can you fix the bug', 'please create a new file', 'can you create a new file', 'please program a script', 'please write a python script', 'run opencode', 'i want to fix the bug', 'create a new file', 'can you build an app', 'please debug this program', 'i want to create a new file'])
-        
+        self.ghostwriter_route = Route(name="ghostwriter", utterances=['draft an email', 'write a message saying', 'draft a prompt to', 'compose an email about', 'draft a letter to', 'can you draft a reply', 'write an essay about', 'type an email asking', 'type a message to', 'generate a response', 'draft a message'])
+        self.press_key_route = Route(name="press_key", utterances=['hit enter', 'press enter', 'hit the enter key', 'press space', 'hit backspace', 'press escape', 'hit tab', 'press the spacebar', 'hit escape', 'press return'])
+
         self.routes = [
             self.get_time_route, self.lock_pc_route, self.battery_route,
             self.power_route, self.notes_mode_route,
@@ -104,14 +108,43 @@ class Gatekeeper:
             self.open_app_route, self.search_web_route, self.youtube_route, self.coding_route,
             self.wikipedia_route, self.timer_route, self.math_route, self.joke_route, 
             self.date_route, self.whatsapp_route, self.call_route, self.writer_route,
-            self.focus_window_route, self.ignore_route, self.sleep_route, self.wifi_action_route,
-            self.open_settings_route, self.open_task_manager_route, self.open_control_panel_route, self.clear_clipboard_route,
-            self.flush_dns_route, self.clear_temp_route, self.kill_task_route, self.theme_toggle_route, self.set_brightness_route
+            self.ignore_route, self.sleep_route, self.wifi_action_route,
+            self.ghostwriter_route, self.press_key_route, self.spotify_route,
+            self.open_settings_route, self.open_task_manager_route, self.open_control_panel_route,
+            self.clear_clipboard_route, self.flush_dns_route, self.clear_temp_route,
+            self.kill_task_route, self.theme_toggle_route, self.set_brightness_route,
+            self.restart_engine_route
         ]
         
         self.router = SemanticRouter(encoder=self.encoder, routes=self.routes, auto_sync="local")
 
     def route_command(self, text):
+        text_lower = text.lower()
+        
+        # Hard intercept for volume controls (Semantic Router confuses antonyms)
+        import re
+        if re.search(r'(?:set\s+)?volume(?:\s+(?:to|at|level))?\s+\d+', text_lower):
+            return app_skills.execute_skill("set_volume", text) or system_skills.execute_skill("set_volume", text)
+        if "volume down" in text_lower or "turn down" in text_lower or "quieter" in text_lower:
+            return app_skills.execute_skill("volume_down", text) or system_skills.execute_skill("volume_down", text)
+        if "volume up" in text_lower or "turn up" in text_lower or "louder" in text_lower:
+            return app_skills.execute_skill("volume_up", text) or system_skills.execute_skill("volume_up", text)
+
+        # Hard intercept for app launching
+        import re
+        if re.match(r'^(?:please\s+)?(?:open|launch|start)\s+([a-zA-Z0-9\s]+)', text_lower):
+            print(f"[Gatekeeper] Intercepted app launch command: {text}")
+            res = app_skills.execute_skill("open_app", text)
+            if res:
+                return res
+                
+        # Hard intercept for closing apps
+        if re.match(r'^(?:please\s+)?(?:close|shut down|quit|exit)\s+([a-zA-Z0-9\s]+)', text_lower):
+            print(f"[Gatekeeper] Intercepted app close command: {text}")
+            res = app_skills.execute_skill("kill_task", text)
+            if res:
+                return res
+
         decision = self.router(text)
         
         if decision.name:
@@ -125,6 +158,9 @@ class Gatekeeper:
             
             if decision.name == "sleep_action":
                 return "__SLEEP__"
+                
+            if decision.name == "restart_engine":
+                return "__RESTART__"
                 
             # Pass text to execute_skill for regex extraction
             res = system_skills.execute_skill(decision.name, text)

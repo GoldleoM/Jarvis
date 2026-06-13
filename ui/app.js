@@ -90,6 +90,11 @@ const historyModal = document.getElementById('history-modal');
 const closeHistoryBtn = document.getElementById('close-history-btn');
 const historyContent = document.getElementById('history-content');
 
+const settingsBtn = document.getElementById('settings-btn');
+const settingsModal = document.getElementById('settings-modal');
+const closeSettingsBtn = document.getElementById('close-settings-btn');
+const saveSettingsBtn = document.getElementById('save-settings-btn');
+
 if (historyBtn) {
     historyBtn.addEventListener('click', () => {
         historyModal.style.display = 'flex';
@@ -101,6 +106,109 @@ if (closeHistoryBtn) {
     closeHistoryBtn.addEventListener('click', () => {
         historyModal.style.display = 'none';
         sendMaskUpdate();
+    });
+}
+
+if (settingsBtn) {
+    settingsBtn.addEventListener('click', () => {
+        settingsModal.style.display = 'flex';
+        if (backend) {
+            backend.get_microphones(function(micsJson) {
+                try {
+                    const mics = JSON.parse(micsJson);
+                    const micOptions = document.getElementById('mic-options');
+                    micOptions.innerHTML = '';
+                    mics.forEach(mic => {
+                        const div = document.createElement('div');
+                        div.innerText = mic.index === -1 ? mic.name : `[${mic.index}] ${mic.name}`;
+                        div.onclick = function() {
+                            document.getElementById('setting-mic-index').value = mic.index;
+                            document.getElementById('mic-display').innerText = div.innerText;
+                        };
+                        micOptions.appendChild(div);
+                    });
+                    
+                    backend.get_settings(function(settingsJson) {
+                        try {
+                            const s = JSON.parse(settingsJson);
+                            document.getElementById('setting-wake-word').value = s.WAKE_WORD || '';
+                            
+                            const micIndex = s.MIC_INDEX !== null && s.MIC_INDEX !== undefined ? s.MIC_INDEX : -1;
+                            document.getElementById('setting-mic-index').value = micIndex;
+                            const selectedMic = mics.find(m => m.index === micIndex);
+                            document.getElementById('mic-display').innerText = selectedMic ? (selectedMic.index === -1 ? selectedMic.name : `[${selectedMic.index}] ${selectedMic.name}`) : `Unknown (${micIndex})`;
+                            
+                            document.getElementById('setting-opencode-model').value = s.OPENCODE_MODEL || '';
+                            document.getElementById('setting-opencode-provider').value = s.OPENCODE_PROVIDER || '';
+                            document.getElementById('setting-whisper-model').value = s.WHISPER_MODEL || 'medium.en';
+                            document.getElementById('whisper-display').innerText = s.WHISPER_MODEL || 'medium.en';
+                            document.getElementById('setting-compute-type').value = s.WHISPER_COMPUTE_TYPE || 'float16';
+                            document.getElementById('compute-display').innerText = s.WHISPER_COMPUTE_TYPE || 'float16';
+                            document.getElementById('setting-vad-threshold').value = s.VAD_THRESHOLD || 0.5;
+                            document.getElementById('setting-orb-color').value = s.ORB_COLOR || '#00ffff';
+                            document.getElementById('setting-orb-glow').value = s.ORB_GLOW || '#0088ff';
+                            document.getElementById('setting-ui-shortcut').value = s.UI_SHORTCUT || 'alt+space';
+                        } catch(e) { console.error("Error parsing settings:", e); }
+                    });
+                } catch(e) { console.error("Error loading mics:", e); }
+            });
+        }
+        sendMaskUpdate();
+    });
+}
+
+if (closeSettingsBtn) {
+    closeSettingsBtn.addEventListener('click', () => {
+        settingsModal.style.display = 'none';
+        sendMaskUpdate();
+    });
+}
+
+if (saveSettingsBtn) {
+    saveSettingsBtn.addEventListener('click', () => {
+        const s = {
+            WAKE_WORD: document.getElementById('setting-wake-word').value,
+            MIC_INDEX: document.getElementById('setting-mic-index').value === '' ? null : parseInt(document.getElementById('setting-mic-index').value),
+            OPENCODE_MODEL: document.getElementById('setting-opencode-model').value,
+            OPENCODE_PROVIDER: document.getElementById('setting-opencode-provider').value,
+            WHISPER_MODEL: document.getElementById('setting-whisper-model').value,
+            WHISPER_COMPUTE_TYPE: document.getElementById('setting-compute-type').value || 'float16',
+            VAD_THRESHOLD: parseFloat(document.getElementById('setting-vad-threshold').value) || 0.5,
+            ORB_COLOR: document.getElementById('setting-orb-color').value || '#00ffff',
+            ORB_GLOW: document.getElementById('setting-orb-glow').value || '#0088ff',
+            UI_SHORTCUT: document.getElementById('setting-ui-shortcut').value || 'alt+space'
+        };
+        
+        targetColor.setHex(parseInt(s.ORB_COLOR.replace('#', '0x')));
+        targetEmissive.setHex(parseInt(s.ORB_GLOW.replace('#', '0x')));
+        targetLight.setHex(parseInt(s.ORB_COLOR.replace('#', '0x')));
+        
+        if (backend) {
+            backend.save_settings(JSON.stringify(s));
+        }
+        
+        settingsModal.style.display = 'none';
+        sendMaskUpdate();
+    });
+}
+
+const testMicBtn = document.getElementById('test-mic-btn');
+if (testMicBtn) {
+    testMicBtn.addEventListener('click', () => {
+        let idx = document.getElementById('setting-mic-index').value;
+        if (idx === "") idx = -1;
+        else idx = parseInt(idx);
+        
+        const res = document.getElementById('test-mic-result');
+        if (res) {
+            res.innerText = "Listening for 1.5s...";
+            res.style.color = "yellow";
+        }
+        testMicBtn.disabled = true;
+        
+        if (backend) {
+            backend.test_mic(idx);
+        }
     });
 }
 
@@ -163,6 +271,12 @@ function sendMaskUpdate() {
     if (historyModal && historyModal.style.display === 'flex') {
         const hm = historyModal.getBoundingClientRect();
         rects.push({x: hm.left - 40, y: hm.top - 40, w: hm.width + 80, h: hm.height + 80, shape: 'rect'});
+    }
+
+    // Settings Modal
+    if (settingsModal && settingsModal.style.display === 'flex') {
+        const sm = settingsModal.getBoundingClientRect();
+        rects.push({x: sm.left - 40, y: sm.top - 40, w: sm.width + 80, h: sm.height + 80, shape: 'rect'});
     }
 
     backend.update_mask(JSON.stringify(rects));
@@ -286,6 +400,20 @@ function initWebChannel() {
             backend.stateChanged.connect(function(state, text) {
                 updateState(state, text);
             });
+            
+            backend.micTestCompleted.connect(function(msg) {
+                const btn = document.getElementById('test-mic-btn');
+                const res = document.getElementById('test-mic-result');
+                if (btn) btn.disabled = false;
+                if (res) {
+                    if (msg.startsWith("Error") || msg.includes("0%")) {
+                        res.style.color = "red";
+                    } else {
+                        res.style.color = "lime";
+                    }
+                    res.innerText = msg;
+                }
+            });
 
             chatInput.addEventListener('keypress', function(e) {
                 if (e.key === 'Enter' && !e.shiftKey) {
@@ -322,6 +450,7 @@ initWebChannel();
 let isDraggingHud = false;
 let isDraggingBox = false;
 let isDraggingHistory = false;
+let isDraggingSettings = false;
 let isDraggingAny = false;
 let startX, startY;
 
@@ -337,9 +466,23 @@ let boxTop = 0;
 let historyLeft = (window.innerWidth / 2) - 300;
 let historyTop = (window.innerHeight / 2) - 200;
 
+let settingsLeft = (window.innerWidth / 2) - 350;
+let settingsTop = (window.innerHeight / 2) - 250;
+
 document.addEventListener('mousedown', (e) => {
-    if (e.target.tagName !== 'INPUT' && e.target.tagName !== 'BUTTON') {
-        if (historyModal && historyModal.style.display === 'flex' && historyModal.contains(e.target) && !historyContent.contains(e.target)) {
+    if (e.target.tagName !== 'INPUT' && e.target.tagName !== 'BUTTON' && e.target.tagName !== 'SELECT' && e.target.tagName !== 'LABEL') {
+        if (settingsModal && settingsModal.style.display === 'flex' && settingsModal.contains(e.target)) {
+            // Prevent dragging if clicking inside the settings content area
+            const contentArea = settingsModal.querySelector('.settings-content');
+            if (!contentArea.contains(e.target)) {
+                isDraggingSettings = true;
+                startX = e.clientX;
+                startY = e.clientY;
+                const rect = settingsModal.getBoundingClientRect();
+                settingsLeft = rect.left;
+                settingsTop = rect.top;
+            }
+        } else if (historyModal && historyModal.style.display === 'flex' && historyModal.contains(e.target) && !historyContent.contains(e.target)) {
             isDraggingHistory = true;
             startX = e.clientX;
             startY = e.clientY;
@@ -358,7 +501,7 @@ document.addEventListener('mousedown', (e) => {
             startY = e.clientY;
         }
         
-        isDraggingAny = isDraggingHud || isDraggingBox || isDraggingHistory;
+        isDraggingAny = isDraggingHud || isDraggingBox || isDraggingHistory || isDraggingSettings;
         if (isDraggingAny) sendMaskUpdate();
     }
 });
@@ -384,6 +527,11 @@ document.addEventListener('mousemove', (e) => {
         historyTop += dy;
         historyModal.style.left = historyLeft + 'px';
         historyModal.style.top = historyTop + 'px';
+    } else if (isDraggingSettings) {
+        settingsLeft += dx;
+        settingsTop += dy;
+        settingsModal.style.left = settingsLeft + 'px';
+        settingsModal.style.top = settingsTop + 'px';
     }
     
     startX = e.clientX;
@@ -395,6 +543,7 @@ document.addEventListener('mouseup', () => {
         isDraggingHud = false;
         isDraggingBox = false;
         isDraggingHistory = false;
+        isDraggingSettings = false;
         isDraggingAny = false;
         sendMaskUpdate();
     }
@@ -405,5 +554,28 @@ const resizeObserver = new ResizeObserver(() => {
     if (historyModal && historyModal.style.display === 'flex') {
         sendMaskUpdate();
     }
+    if (settingsModal && settingsModal.style.display === 'flex') {
+        sendMaskUpdate();
+    }
 });
 resizeObserver.observe(historyModal);
+resizeObserver.observe(settingsModal);
+
+// Custom Dropdown Click Handlers
+document.addEventListener('click', (e) => {
+    const isValue = e.target.classList.contains('custom-select-value');
+    if (isValue) {
+        const options = e.target.nextElementSibling;
+        const wasOpen = options.classList.contains('open');
+        document.querySelectorAll('.custom-select-options.open').forEach(el => el.classList.remove('open'));
+        if (!wasOpen) {
+            options.classList.add('open');
+        }
+    } else if (e.target.closest('.custom-select-options')) {
+        // Clicked an option, close it
+        e.target.closest('.custom-select-options').classList.remove('open');
+    } else {
+        // Clicked outside, close all
+        document.querySelectorAll('.custom-select-options.open').forEach(el => el.classList.remove('open'));
+    }
+});

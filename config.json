@@ -2,5 +2,10 @@
     "model": {
         "providerID": "opencode",
         "modelID": "big-pickle"
+    },
+    "UI": {
+        "ORB_COLOR": "#00ffff",
+        "ORB_GLOW": "#0088ff",
+        "UI_SHORTCUT": "alt+space"
     }
 }

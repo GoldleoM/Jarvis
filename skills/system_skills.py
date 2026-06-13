@@ -108,13 +108,13 @@ def execute_skill(intent_name, text=""):
 
     elif intent_name == "kill_task":
         import re
-        match = re.search(r'(?:force close|kill|terminate|force quit|end task|kill the process)\s+(.+)', text.lower())
+        match = re.search(r'(?:force close|kill|terminate|force quit|end task|kill the process|shut down|exit|stop|close)\s+(.+)', text.lower())
         if match:
             app_name = match.group(1).strip()
             app_name = re.sub(r'\s+(?:task|process|app)$', '', app_name).strip()
             os.system(f"taskkill /F /IM {app_name}.exe /T >nul 2>&1")
             return f"I have forcefully terminated the {app_name} process tree, sir."
-        return "Which application would you like me to force close?"
+        return "Which application would you like me to close?"
 
     elif intent_name == "theme_toggle":
         if "dark" in text.lower():
@@ -158,35 +158,94 @@ def execute_skill(intent_name, text=""):
         return "Screenshot taken, sir."
 
     elif intent_name == "media_play_pause":
-        import pyautogui
-        pyautogui.press("playpause")
+        import ctypes
+        # VK_MEDIA_PLAY_PAUSE = 0xB3, KEYEVENTF_EXTENDEDKEY = 1, KEYEVENTF_KEYUP = 2
+        ctypes.windll.user32.keybd_event(0xB3, 0, 1, 0)
+        ctypes.windll.user32.keybd_event(0xB3, 0, 3, 0)
         return "Toggling media playback."
         
     elif intent_name == "media_next":
-        import pyautogui
-        pyautogui.press("nexttrack")
+        import ctypes
+        # VK_MEDIA_NEXT_TRACK = 0xB0
+        ctypes.windll.user32.keybd_event(0xB0, 0, 1, 0)
+        ctypes.windll.user32.keybd_event(0xB0, 0, 3, 0)
         return "Skipping to the next track."
 
     elif intent_name == "media_prev":
-        import pyautogui
-        pyautogui.press("prevtrack")
+        import ctypes
+        # VK_MEDIA_PREV_TRACK = 0xB1
+        ctypes.windll.user32.keybd_event(0xB1, 0, 1, 0)
+        ctypes.windll.user32.keybd_event(0xB1, 0, 3, 0)
         return "Going back to the previous track."
 
     elif intent_name == "volume_up":
-        import pyautogui
-        for _ in range(5):
-            pyautogui.press("volumeup")
+        import ctypes
+        import re
+        
+        steps = 5
+        match = re.search(r'(\d+)', text)
+        if match:
+            steps = max(1, min(50, int(match.group(1)) // 2))
+        elif "a lot" in text.lower():
+            steps = 15
+        elif "a little" in text.lower() or "slightly" in text.lower():
+            steps = 2
+        elif "max" in text.lower() or "full" in text.lower() or "100" in text.lower():
+            steps = 50
+
+        # VK_VOLUME_UP = 0xAF
+        for _ in range(steps):
+            ctypes.windll.user32.keybd_event(0xAF, 0, 1, 0)
+            ctypes.windll.user32.keybd_event(0xAF, 0, 3, 0)
         return "Turning the volume up."
         
     elif intent_name == "volume_down":
-        import pyautogui
-        for _ in range(5):
-            pyautogui.press("volumedown")
+        import ctypes
+        import re
+        
+        steps = 5
+        match = re.search(r'(\d+)', text)
+        if match:
+            steps = max(1, min(50, int(match.group(1)) // 2))
+        elif "a lot" in text.lower():
+            steps = 15
+        elif "a little" in text.lower() or "slightly" in text.lower():
+            steps = 2
+        elif "mute" in text.lower() or "zero" in text.lower():
+            steps = 50
+
+        # VK_VOLUME_DOWN = 0xAE
+        for _ in range(steps):
+            ctypes.windll.user32.keybd_event(0xAE, 0, 1, 0)
+            ctypes.windll.user32.keybd_event(0xAE, 0, 3, 0)
         return "Turning the volume down."
         
+    elif intent_name == "set_volume":
+        import re
+        match = re.search(r'(\d+)', text)
+        if match:
+            level = max(0, min(100, int(match.group(1))))
+            try:
+                import comtypes
+                comtypes.CoInitialize()
+                from pycaw.pycaw import AudioUtilities
+                devices = AudioUtilities.GetSpeakers()
+                interface = devices.EndpointVolume
+                interface.SetMasterVolumeLevelScalar(level / 100.0, None)
+                return f"Setting the volume to {level} percent."
+            except ImportError:
+                return "I'm sorry, the pycaw library is not installed to set absolute volume."
+            except Exception as e:
+                print(f"[System Skills] Error setting volume: {e}")
+                return "I couldn't set the absolute volume."
+        else:
+            return "I didn't catch the volume percentage."
+
     elif intent_name == "volume_mute":
-        import pyautogui
-        pyautogui.press("volumemute")
+        import ctypes
+        # VK_VOLUME_MUTE = 0xAD
+        ctypes.windll.user32.keybd_event(0xAD, 0, 1, 0)
+        ctypes.windll.user32.keybd_event(0xAD, 0, 3, 0)
         return "Muting the system volume."
 
     elif intent_name == "focus_window":

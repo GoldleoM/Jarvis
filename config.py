@@ -3,7 +3,7 @@ Configuration for the Jarvis Voice Assistant
 """
 
 # ---------- AUDIO ----------
-MIC_INDEX = None
+MIC_INDEX = 1
 SAMPLE_RATE = 16000
 CHUNK_SIZE = 512
 

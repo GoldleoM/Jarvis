@@ -16,6 +16,7 @@
             <div id="canvas-container"></div>
             <div id="status-text">JARVIS INITIALIZING...</div>
             <div id="chat-container">
+                <button id="settings-btn" title="Settings">⚙</button>
                 <button id="history-btn" title="Chat History">≡</button>
                 <textarea id="chat-input" rows="1" placeholder="Type a command or say Jarvis..." autocomplete="off"></textarea>
                 <button id="cancel-btn" style="display: none;">CANCEL</button>
@@ -27,6 +28,70 @@
                 <button id="close-history-btn">X</button>
             </div>
             <div id="history-content"></div>
+        </div>
+        <div id="settings-modal" style="display: none;">
+            <div class="settings-header">
+                <h3>JARVIS CONFIGURATION</h3>
+                <button id="close-settings-btn">X</button>
+            </div>
+            <div class="settings-content">
+                <div class="settings-column">
+                    <h4>Core & AI Settings</h4>
+                    <label>Wake Word: <input type="text" id="setting-wake-word"></label>
+                    <label>Mic Index: 
+                        <div style="display: flex; gap: 10px; align-items: center;">
+                            <div class="custom-select-container">
+                                <input type="hidden" id="setting-mic-index" value="-1">
+                                <div class="custom-select-value" id="mic-display" style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 150px;">System Default</div>
+                                <div class="custom-select-options" id="mic-options">
+                                    <!-- Populated dynamically via JS -->
+                                </div>
+                            </div>
+                            <button id="test-mic-btn" style="padding: 5px 10px; background: rgba(0,255,255,0.2); border: 1px solid rgba(0,255,255,0.5); color: white; border-radius: 5px; cursor: pointer;">Test</button>
+                        </div>
+                    </label>
+                    <div id="test-mic-result" style="color: rgba(0,255,255,0.8); font-size: 12px; text-align: right; margin-bottom: 10px; min-height: 15px;"></div>
+                    <label>OpenCode Model: <input type="text" id="setting-opencode-model"></label>
+                    <label>OpenCode Provider: <input type="text" id="setting-opencode-provider"></label>
+                </div>
+                <div class="settings-column">
+                    <h4>Speech Settings</h4>
+                    <label>Whisper Model: 
+                        <div class="custom-select-container">
+                            <input type="hidden" id="setting-whisper-model" value="medium.en">
+                            <div class="custom-select-value" id="whisper-display">medium.en</div>
+                            <div class="custom-select-options">
+                                <div onclick="document.getElementById('setting-whisper-model').value='tiny.en'; document.getElementById('whisper-display').innerText='tiny.en';">tiny.en</div>
+                                <div onclick="document.getElementById('setting-whisper-model').value='base.en'; document.getElementById('whisper-display').innerText='base.en';">base.en</div>
+                                <div onclick="document.getElementById('setting-whisper-model').value='small.en'; document.getElementById('whisper-display').innerText='small.en';">small.en</div>
+                                <div onclick="document.getElementById('setting-whisper-model').value='medium.en'; document.getElementById('whisper-display').innerText='medium.en';">medium.en</div>
+                            </div>
+                        </div>
+                    </label>
+                    <label>Compute Type: 
+                        <div class="custom-select-container">
+                            <input type="hidden" id="setting-compute-type" value="float16">
+                            <div class="custom-select-value" id="compute-display">float16</div>
+                            <div class="custom-select-options">
+                                <div onclick="document.getElementById('setting-compute-type').value='float16'; document.getElementById('compute-display').innerText='float16';">float16</div>
+                                <div onclick="document.getElementById('setting-compute-type').value='int8'; document.getElementById('compute-display').innerText='int8';">int8</div>
+                                <div onclick="document.getElementById('setting-compute-type').value='int8_float16'; document.getElementById('compute-display').innerText='int8_float16';">int8_float16</div>
+                                <div onclick="document.getElementById('setting-compute-type').value='float32'; document.getElementById('compute-display').innerText='float32';">float32</div>
+                            </div>
+                        </div>
+                    </label>
+                    <label>VAD Threshold: <input type="number" id="setting-vad-threshold" step="0.1" min="0" max="1"></label>
+                    
+                    <div style="display: flex; gap: 10px; width: 100%;">
+                        <label style="flex: 1;">Orb Core: <input type="color" id="setting-orb-color"></label>
+                        <label style="flex: 1;">Orb Glow: <input type="color" id="setting-orb-glow"></label>
+                    </div>
+                    <label>UI Toggle Shortcut: <input type="text" id="setting-ui-shortcut" placeholder="e.g. alt+space"></label>
+                </div>
+            </div>
+            <div class="settings-footer">
+                <button id="save-settings-btn">SAVE CONFIG</button>
+            </div>
         </div>
     </div>
     <script src="app.js"></script>
