@@ -317,53 +317,85 @@ def execute_skill(intent_name, text=""):
 
 
     elif intent_name == "whatsapp":
+        import json
+        import difflib
+
+        contacts = []
+        contacts_file = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'contacts.json')
+        if os.path.exists(contacts_file):
+            try:
+                with open(contacts_file, 'r') as f:
+                    data = json.load(f)
+                    contacts = data.get('contacts', [])
+            except:
+                pass
+
+        def find_contact(raw_name, cutoff=0.6):
+            if not contacts:
+                return None
+            matches = difflib.get_close_matches(raw_name, contacts, n=1, cutoff=cutoff)
+            return matches[0] if matches else None
+
+        def get_suggestions(raw_name, max_count=4):
+            if not contacts:
+                return []
+            return difflib.get_close_matches(raw_name, contacts, n=max_count, cutoff=0.3)
+
+        # Path 1: Both contact and message provided in one utterance
         match = re.search(r'(?:send a whatsapp to|text|message|send a text to)\s+([a-zA-Z\s]+?)\s+saying\s+(.+)', text.lower())
         if match:
-            contact = match.group(1).strip()
+            contact_raw = match.group(1).strip()
             msg = match.group(2).strip()
-            import pyautogui
-            import time
-            pyautogui.press('win')
-            time.sleep(0.5)
-            pyautogui.write('whatsapp', interval=0.05)
-            time.sleep(0.5)
-            pyautogui.press('enter')
-            time.sleep(2)
-            pyautogui.hotkey('ctrl', 'f')
-            time.sleep(0.5)
-            pyautogui.write(contact, interval=0.05)
-            time.sleep(1)
-            pyautogui.press('enter')
-            time.sleep(1)
-            pyautogui.write(msg, interval=0.05)
-            time.sleep(0.5)
-            pyautogui.press('enter')
-            return f"Message sent to {contact}, sir."
-            
+            matched = find_contact(contact_raw)
+            if matched:
+                import pyautogui
+                import time
+                pyautogui.press('win')
+                time.sleep(0.5)
+                pyautogui.write('whatsapp', interval=0.05)
+                time.sleep(0.5)
+                pyautogui.press('enter')
+                time.sleep(2)
+                pyautogui.hotkey('ctrl', 'f')
+                time.sleep(0.5)
+                pyautogui.write(matched, interval=0.05)
+                time.sleep(1)
+                pyautogui.press('enter')
+                time.sleep(1)
+                pyautogui.write(msg, interval=0.05)
+                time.sleep(0.5)
+                pyautogui.press('enter')
+                return f"Message sent to {matched}, sir."
+            else:
+                suggestions = get_suggestions(contact_raw)
+                if suggestions:
+                    opts = "|".join(suggestions)
+                    numbered = ", ".join(f"{i+1}. {s}" for i, s in enumerate(suggestions))
+                    encoded_msg = msg.replace("|", " ").replace("__", " ")
+                    return f"__CONTEXT__whatsapp_suggest_msg__Did you mean {numbered}? Please say the name or number.__{opts}__{encoded_msg}"
+                else:
+                    return f"I'm sorry, sir, but {contact_raw} is not in your contacts list."
+
+        # Path 2: Only contact name is provided, need to ask for message
         match_who = re.search(r'(?:send a whatsapp to|text|message|send a text to)\s+([a-zA-Z\s]+)', text.lower())
         if match_who:
             raw_contact = match_who.group(1).strip()
             raw_contact = re.sub(r'\s+(?:please|now)$', '', raw_contact).strip()
-            
-            import json
-            import difflib
-            contacts_file = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'contacts.json')
-            if os.path.exists(contacts_file):
-                try:
-                    with open(contacts_file, 'r') as f:
-                        data = json.load(f)
-                        contacts = data.get('contacts', [])
-                        
-                        matches = difflib.get_close_matches(raw_contact, contacts, n=1, cutoff=0.6)
-                        if matches:
-                            matched = matches[0]
-                            if matched.lower() == raw_contact.lower():
-                                return f"__CONTEXT__whatsapp_msg_{matched}__What would you like to say to {matched}?__{matched}"
-                            else:
-                                return f"__CONTEXT__whatsapp_confirm__Did you mean {matched}?__{matched}"
-                except:
-                    pass
-            return f"__CONTEXT__whatsapp_msg_{raw_contact}__What would you like to say to {raw_contact}?__{raw_contact}"
+
+            matched = find_contact(raw_contact)
+            if matched:
+                if matched.lower() == raw_contact.lower():
+                    return f"__CONTEXT__whatsapp_msg_{matched}__What would you like to say to {matched}?__{matched}"
+                else:
+                    return f"__CONTEXT__whatsapp_confirm__Did you mean {matched}?__{matched}"
+            else:
+                suggestions = get_suggestions(raw_contact)
+                if suggestions:
+                    opts = "|".join(suggestions)
+                    numbered = ", ".join(f"{i+1}. {s}" for i, s in enumerate(suggestions))
+                    return f"__CONTEXT__whatsapp_suggest__Did you mean {numbered}? Please say the name or number.__{opts}"
+                else:
+                    return f"I'm sorry, sir, but {raw_contact} is not in your contacts list."
 
         return "__CONTEXT__whatsapp_who__Who would you like to text?"
     elif intent_name == "weather":

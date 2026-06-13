@@ -409,7 +409,8 @@ class VoiceEngine:
                     return True
         return False
 
-    # ---------- COMMAND ----------    async def handle_command(self, text):
+    # ---------- COMMAND ----------
+    async def handle_command(self, text):
         self._set_ui_state("thinking", "PROCESSING...")
         print(f"Command: {text}")
 
@@ -496,6 +497,78 @@ class VoiceEngine:
                         try:
                             await asyncio.wait_for(
                                 self.loop.run_in_executor(self.executor, self.tts.speak, "Okay, cancelling message."),
+                                timeout=5
+                            )
+                        except:
+                            pass
+                        return
+                elif action == "whatsapp_suggest" or action == "whatsapp_suggest_msg":
+                    options_str = self.pending_contact
+                    saved_message = None
+                    if "|||" in options_str:
+                        parts_data = options_str.split("|||", 1)
+                        options_str = parts_data[0]
+                        saved_message = parts_data[1]
+                    options = [o.strip() for o in options_str.split("|") if o.strip()]
+                    import difflib
+                    clean_lower = clean_text.lower().strip()
+                    selected = None
+                    if clean_lower.isdigit():
+                        num = int(clean_lower)
+                        if 1 <= num <= len(options):
+                            selected = options[num - 1]
+                    if not selected:
+                        name_matches = difflib.get_close_matches(clean_lower, [o.lower() for o in options], n=1, cutoff=0.5)
+                        if name_matches:
+                            idx = [o.lower() for o in options].index(name_matches[0])
+                            selected = options[idx]
+                    if selected:
+                        if saved_message:
+                            clean_msg = saved_message
+                            text = f"send a whatsapp to {selected} saying {clean_msg}"
+                            clean_text = text.lower().strip(" ,!?.-")
+                            self.last_active_time = __import__('time').time()
+                            local_response = await self.loop.run_in_executor(self.executor, self.gatekeeper.route_command, clean_text)
+                            if local_response and local_response.startswith("Message sent"):
+                                pass
+                            else:
+                                self.last_active_time = __import__('time').time()
+                            self.pending_context = None
+                            self.pending_contact = None
+                            self.is_active = False
+                            if local_response:
+                                self.last_spoken_text = local_response
+                                self._set_ui_state("speaking", local_response)
+                                print(f"Jarvis: {local_response}")
+                                try:
+                                    await asyncio.wait_for(self.loop.run_in_executor(self.executor, self.tts.speak, local_response), timeout=20)
+                                except:
+                                    pass
+                                finally:
+                                    self.last_speech_time = __import__('time').time()
+                                    self.stt.flush_requested = True
+                                    if self.ui_state in ["thinking", "speaking"]:
+                                        self._set_ui_state("idle", "ONLINE")
+                                if hasattr(self, 'non_llm_events'):
+                                    self.non_llm_events.append({"user": text, "jarvis": local_response})
+                            return
+                        else:
+                            self.pending_context = f"whatsapp_msg_{selected}"
+                            try:
+                                await asyncio.wait_for(
+                                    self.loop.run_in_executor(self.executor, self.tts.speak, f"What would you like to say to {selected}?"),
+                                    timeout=5
+                                )
+                            except:
+                                pass
+                            self.is_active = True
+                            self.last_active_time = __import__('time').time()
+                            return
+                    else:
+                        self.pending_contact = None
+                        try:
+                            await asyncio.wait_for(
+                                self.loop.run_in_executor(self.executor, self.tts.speak, "Sorry, I didn't catch that. Please try again with a valid name or number."),
                                 timeout=5
                             )
                         except:

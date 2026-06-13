@@ -145,6 +145,13 @@ class Gatekeeper:
             res = app_skills.execute_skill("kill_task", text)
             if res:
                 return res
+                
+        # Hard intercept for focusing windows
+        if re.match(r'^(?:please\s+)?(?:focus|bring to front|switch to|jump to|go to)\s+([a-zA-Z0-9\s]+)', text_lower):
+            print(f"[Gatekeeper] Intercepted focus window command: {text}")
+            res = app_skills.execute_skill("focus_app", text)
+            if res:
+                return res
 
         decision = self.router(text)
         
