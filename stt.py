@@ -33,7 +33,12 @@ class SpeechToText:
             self.model = faster_whisper.WhisperModel(model_size, device="cpu", compute_type="float32")
         
         # VAD Settings (Silero VAD)
-        self.vad_model, _ = torch.hub.load(repo_or_dir='snakers4/silero-vad', model='silero_vad')
+        os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
+        local_hub_dir = os.path.expanduser('~/.cache/torch/hub/snakers4_silero-vad_master')
+        if os.path.exists(local_hub_dir):
+            self.vad_model, _ = torch.hub.load(local_hub_dir, model='silero_vad', source='local', trust_repo=True)
+        else:
+            self.vad_model, _ = torch.hub.load(repo_or_dir='snakers4/silero-vad', model='silero_vad', trust_repo=True)
         self.vad_model.eval()
         self.sample_rate = 16000
         # Silero VAD strongly prefers exactly 512 samples per chunk (32ms at 16000Hz)

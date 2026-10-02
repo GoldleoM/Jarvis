@@ -1,16 +1,31 @@
+# Audio & Speech Recognition
 faster-whisper
 sounddevice
 numpy
 torch
+torchaudio
 onnxruntime
-huggingface_hub
-webrtcvad
+webrtcvad-wheels; sys_platform == 'win32'
+webrtcvad; sys_platform != 'win32'
 speechbrain
+scipy
+
+# Intent Routing & Language Models
+semantic-router
+huggingface_hub
+
+# Desktop Automation & Skills
 pyautogui
 pywhatkit
 wikipedia
 requests
 psutil
-pyside6
+keyboard
+pygetwindow; sys_platform == 'win32'
+pycaw; sys_platform == 'win32'
+comtypes; sys_platform == 'win32'
+
+# GUI & Async Event Loop
+PySide6
 qasync
 aiohttp

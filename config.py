@@ -20,9 +20,9 @@ WAKE_WORD_CONFIDENCE_THRESHOLD = 0.85
 
 
 # ---------- WHISPER ----------
-WHISPER_MODEL = "small.en"
+WHISPER_MODEL = "base"
 WHISPER_DEVICE = "cuda"
-WHISPER_COMPUTE_TYPE = "int8_float16" # Low power mode: reduced precision, much less GPU usage
+WHISPER_COMPUTE_TYPE = "float32" # Low power mode: reduced precision, much less GPU usage
 
 
 # ---------- TTS ----------
@@ -30,7 +30,7 @@ TTS_ENGINE = "piper"  # "piper" or "kokoro"
 
 # -- Piper (fallback) --
 PIPER_PATH = r"C:\Users\GoldleoM\AppData\Roaming\Python\Python310\Scripts\piper.exe"
-PIPER_MODEL = r"models\en_GB-alan-low.onnx"
+PIPER_MODEL = r"models\en_GB-alba-medium.onnx"
 
 # -- Kokoro (lightning fast) --
 KOKORO_LANG_CODE = "b"      # 'b' = British English, 'a' = American English

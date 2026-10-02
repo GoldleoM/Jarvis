@@ -7,24 +7,34 @@ import json
 async def get_active_session():
     print("[AgentRunner] Attempting to connect to OpenCode API at http://127.0.0.1:4096/api/session...")
     async with aiohttp.ClientSession() as session:
-        try:
-            async with session.get("http://127.0.0.1:4096/api/session") as response:
-                print(f"[AgentRunner] GET /api/session returned status: {response.status}")
-                if response.status == 200:
-                    data = await response.json()
-                    # data is a dictionary with an 'items' array
-                    if isinstance(data, dict) and 'items' in data and len(data['items']) > 0:
-                        # Grab the most recent session ID
-                        session_id = data['items'][0].get('id')
-                        print(f"[AgentRunner] Found active session ID: {session_id}")
-                        return session_id
+        for endpoint in ["http://127.0.0.1:4096/api/session", "http://127.0.0.1:4096/session"]:
+            try:
+                async with session.get(endpoint) as response:
+                    print(f"[AgentRunner] GET {endpoint} returned status: {response.status}")
+                    if response.status == 200:
+                        data = await response.json()
+                        sessions_list = []
+                        if isinstance(data, list):
+                            sessions_list = data
+                        elif isinstance(data, dict):
+                            if isinstance(data.get('data'), list):
+                                sessions_list = data['data']
+                            elif isinstance(data.get('items'), list):
+                                sessions_list = data['items']
+                            elif 'id' in data:
+                                sessions_list = [data]
+                        
+                        if len(sessions_list) > 0:
+                            session_id = sessions_list[0].get('id')
+                            if session_id:
+                                print(f"[AgentRunner] Found active session ID: {session_id}")
+                                return session_id
                     else:
-                        print("[AgentRunner] API returned an empty list of sessions.")
-                else:
-                    print(f"[AgentRunner] API Error response text: {await response.text()}")
-        except Exception as e:
-            print(f"[AgentRunner] Exception during GET /api/session: {e}")
-            pass
+                        print(f"[AgentRunner] API Error response text: {await response.text()}")
+            except Exception as e:
+                print(f"[AgentRunner] Exception during GET {endpoint}: {e}")
+                pass
+        print("[AgentRunner] API returned an empty list of sessions.")
     return None
 
 async def run_opencode_task(command: str):
@@ -36,16 +46,22 @@ async def run_opencode_task(command: str):
         print("[AgentRunner] No active session found. Creating a new one...")
         # Create a new session if none exist
         async with aiohttp.ClientSession() as session:
-            try:
-                async with session.post("http://127.0.0.1:4096/api/session", json={"title": "Jarvis Session"}) as response:
-                    print(f"[AgentRunner] POST /api/session returned status: {response.status}")
-                    if response.status == 200:
-                        data = await response.json()
-                        session_id = data.get('id')
-                        print(f"[AgentRunner] Created new session ID: {session_id}")
-            except Exception as e:
-                print(f"[AgentRunner] Exception during POST /api/session: {e}")
-                pass
+            for endpoint in ["http://127.0.0.1:4096/api/session", "http://127.0.0.1:4096/session"]:
+                try:
+                    async with session.post(endpoint, json={"title": "Jarvis Session"}) as response:
+                        print(f"[AgentRunner] POST {endpoint} returned status: {response.status}")
+                        if response.status == 200:
+                            data = await response.json()
+                            if isinstance(data, dict):
+                                session_id = data.get('id')
+                                if not session_id and isinstance(data.get('data'), dict):
+                                    session_id = data['data'].get('id')
+                            if session_id:
+                                print(f"[AgentRunner] Created new session ID: {session_id}")
+                                break
+                except Exception as e:
+                    print(f"[AgentRunner] Exception during POST {endpoint}: {e}")
+                    pass
                 
     if not session_id:
         print("[AgentRunner] CRITICAL: Failed to locate or create an OpenCode session!")

@@ -53,13 +53,17 @@ def select_input_device(auto_default=False):
         print("[ERROR] No usable microphones found.")
         return None
 
-    if auto_default:
-        import sounddevice as sd
-        try:
-            sd.default.device = (3, None)
-            return 3
-        except:
-            return None
+    import config
+    configured_mic = getattr(config, "MIC_INDEX", None)
+
+    if auto_default or not sys.stdin.isatty():
+        if configured_mic is not None and any(idx == configured_mic for idx, _ in devices):
+            import sounddevice as sd
+            sd.default.device = (configured_mic, None)
+            print(f"[SUCCESS] Using configured mic [{configured_mic}]: {sd.query_devices(configured_mic)['name']}")
+            return configured_mic
+        print("Using system default mic.")
+        return None
 
     try:
         choice = input("\nSelect mic index (Enter for default): ").strip()
@@ -124,20 +128,39 @@ class VoiceEngine:
         # Boot persistent OpenCode Console in background (hidden)
         import subprocess
         import sys
-        creationflags = subprocess.CREATE_NO_WINDOW if sys.platform == 'win32' else 0
         import shutil
-        opencode_cmd = shutil.which("opencode")
-        if opencode_cmd:
-            self.opencode_process = subprocess.Popen(
-                [opencode_cmd, '--agent', 'Jarvis', '--model', 'google/gemma-4-31b-it', '--port', '4096'],
-                creationflags=creationflags
-            )
-        else:
-            self.opencode_process = subprocess.Popen(
-                'opencode --agent Jarvis --model google/gemma-4-31b-it --port 4096',
-                shell=True,
-                creationflags=creationflags
-            )
+        import urllib.request
+        creationflags = subprocess.CREATE_NO_WINDOW if sys.platform == 'win32' else 0
+        
+        # Check if OpenCode is already running on port 4096
+        self.opencode_process = None
+        opencode_already_running = False
+        try:
+            with urllib.request.urlopen("http://127.0.0.1:4096/session", timeout=1) as resp:
+                if resp.status == 200:
+                    opencode_already_running = True
+                    print("[System] OpenCode server is already running on port 4096.")
+        except Exception:
+            pass
+
+        if not opencode_already_running:
+            opencode_cmd = shutil.which("opencode")
+            if opencode_cmd:
+                self.opencode_process = subprocess.Popen(
+                    [opencode_cmd, 'serve', '--port', '4096'],
+                    creationflags=creationflags,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL
+                )
+            else:
+                self.opencode_process = subprocess.Popen(
+                    'opencode serve --port 4096',
+                    shell=True,
+                    creationflags=creationflags,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL
+                )
+            print("[System] Started OpenCode headless server on port 4096.")
         self.queue = asyncio.Queue(maxsize=20)
         self.executor = concurrent.futures.ThreadPoolExecutor(max_workers=3)
         self.current_task = None
@@ -147,6 +170,10 @@ class VoiceEngine:
 
         import config
         self.wake_word = getattr(config, "WAKE_WORD", "jarvis")
+        
+        import atexit
+        atexit.register(self._cleanup_opencode)
+        
         self._init_state()
 
     def _cleanup_opencode(self):
@@ -1065,3 +1092,4 @@ if __name__ == "__main__":
         asyncio.run(main(debug=args.debug))
     except KeyboardInterrupt:
         print("\nStopped.")
+        sys.exit(0)

@@ -43,6 +43,24 @@ class Gatekeeper:
         self.focus_app_route = Route(name="focus_app", utterances=['focus on spotify', 'focus google chrome', 'switch to obs studio', 'bring discord to front', 'go to visual studio', 'can you switch to chrome', 'please focus on the browser', 'focus the browser', 'bring the browser to front', 'switch to the browser', 'switch over to spotify', 'focus anti-gravity', 'can you focus on my ide', 'bring up the terminal', 'switch back to chrome', 'make spotify the active window', 'can you pull up visual studio', 'i need to see discord', 'show me obs studio', 'jump to the web browser', 'put focus on discord', 'can you bring spotify up', 'switch my screen to chrome', 'activate the terminal window', 'please pull up brave', 'switch me over to discord', 'i want to switch to visual studio', 'show me spotify please', 'make chrome the active window', 'focus on that app', 'switch to the active window', 'bring that window up', 'focus the terminal', 'jump over to the terminal'])
         self.screenshot_route = Route(name="take_screenshot", utterances=["take a screenshot", "screenshot the screen", "capture the screen"])
         self.restart_engine_route = Route(name="restart_engine", utterances=["restart yourself", "jarvis restart the engine", "reboot yourself", "jarvis restart yourself", "restart the application", "restart the app", "restart the system", "reboot the engine"])
+        
+        # Vision & Screen Analysis
+        self.vision_route = Route(name="vision_screen", utterances=[
+            "what is on my screen", "describe the screen", "look at this",
+            "what do you see", "describe what is on my screen", "look at the screen",
+            "tell me what you see", "what is showing on my screen", "analyze the screen",
+            "what is displayed on my screen", "describe my screen",
+            "describe what is showing", "what can you see", "look at my screen",
+            "tell me what is on the screen", "what windows are open",
+            "describe the current screen", "what is on the display",
+            "read the screen", "what are you looking at"
+        ])
+        self.vision_find_route = Route(name="vision_find", utterances=[
+            "find on the screen", "search for text on screen", "look for on the screen",
+            "find text on my screen", "can you see on the screen",
+            "is there on the screen", "do you see on my screen",
+            "where is the on screen", "find the button on screen"
+        ])
 
         # Media & Volume
         self.media_play_pause_route = Route(name="media_play_pause", utterances=['play', 'pause', 'stop', 'resume', 'please toggle playback', 'please stop playing', 'stop the audio', 'can you play this', 'can you toggle playback', 'please play the media', 'can you play the media', 'can you pause the music', 'toggle playback', 'please pause the music', 'please play the music', 'please resume playback', 'can you stop the audio', 'can you resume playback', 'resume playback', 'please stop the audio', 'please pause this', 'can you play the music', 'play the media', 'pause the music', 'pause the video', 'can you pause the video', 'can you stop playing', 'please play this', 'play this', 'can you pause this', 'pause this', 'play the music', 'please pause the video', 'stop playing'])

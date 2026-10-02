@@ -454,6 +454,9 @@ async def state_monitor(engine, bridge):
 async def run_app():
     # Setup PySide6 integration with asyncio
     engine = VoiceEngine(debug=False, ui_mode=True)
+    app = QApplication.instance()
+    if app:
+        app.aboutToQuit.connect(engine._cleanup_opencode)
     bridge = BackendBridge(engine)
     window = TransparentWindow(bridge)
     bridge.window = window
