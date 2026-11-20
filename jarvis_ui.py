@@ -83,8 +83,7 @@ class BackendBridge(QObject):
             "WHISPER_COMPUTE_TYPE": getattr(config, "WHISPER_COMPUTE_TYPE", "float16") if config else "float16",
             "WHISPER_DEVICE": getattr(config, "WHISPER_DEVICE", "cuda") if config else "cuda",
             "VAD_THRESHOLD": getattr(config, "VAD_THRESHOLD", 0.5) if config else 0.5,
-            "OPENCODE_PROVIDER": "opencode",
-            "OPENCODE_MODEL": "big-pickle",
+            "CODEX_MODEL": "",
             "ORB_COLOR": "#00ffff",
             "ORB_GLOW": "#0088ff"
         }
@@ -95,10 +94,8 @@ class BackendBridge(QObject):
                 with open(config_json_path, "r", encoding="utf-8") as f:
                     config_data = json.load(f)
                     
-                model = config_data.get("model", {})
-                if "providerID" in model: s["OPENCODE_PROVIDER"] = model["providerID"]
-                if "modelID" in model: s["OPENCODE_MODEL"] = model["modelID"]
-                
+                s["CODEX_MODEL"] = config_data.get("codex", {}).get("model", "")
+
                 ui = config_data.get("UI", {})
                 if "ORB_COLOR" in ui: s["ORB_COLOR"] = ui["ORB_COLOR"]
                 if "ORB_GLOW" in ui: s["ORB_GLOW"] = ui["ORB_GLOW"]
@@ -169,11 +166,8 @@ class BackendBridge(QObject):
                     except:
                         pass
                 
-            if "model" not in config_data:
-                config_data["model"] = {}
-            config_data["model"]["providerID"] = s.get("OPENCODE_PROVIDER", "opencode")
-            config_data["model"]["modelID"] = s.get("OPENCODE_MODEL", "big-pickle")
-            
+            config_data.setdefault("codex", {})["model"] = s.get("CODEX_MODEL", "").strip()
+
             config_data["UI"] = {
                 "ORB_COLOR": s.get("ORB_COLOR", "#00ffff"),
                 "ORB_GLOW": s.get("ORB_GLOW", "#0088ff"),
@@ -468,9 +462,6 @@ async def run_engine(bridge):
     except Exception:
         traceback.print_exc()
         bridge.publish_state("error", "STARTUP FAILED • OPEN TRAY → VIEW LOGS")
-    finally:
-        if bridge.engine:
-            bridge.engine._cleanup_opencode()
 
 def configure_webengine_runtime():
     if sys.platform != "win32":

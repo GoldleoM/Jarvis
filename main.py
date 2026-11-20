@@ -27,6 +27,7 @@ if config.TTS_ENGINE == "kokoro":
 else:
     from tts import TextToSpeech
 from router import Gatekeeper
+from agent_runner import CodexChat, CodexError
 
 
 # ---------- AUDIO UTILS ----------
@@ -132,42 +133,6 @@ class VoiceEngine:
         self.tts = None
         self.gatekeeper = None
         
-        # Boot persistent OpenCode Console in background (hidden)
-        import subprocess
-        import sys
-        import shutil
-        import urllib.request
-        creationflags = subprocess.CREATE_NO_WINDOW if sys.platform == 'win32' else 0
-        
-        # Check if OpenCode is already running on port 4096
-        self.opencode_process = None
-        opencode_already_running = False
-        try:
-            with urllib.request.urlopen("http://127.0.0.1:4096/session", timeout=1) as resp:
-                if resp.status == 200:
-                    opencode_already_running = True
-                    print("[System] OpenCode server is already running on port 4096.")
-        except Exception:
-            pass
-
-        if not opencode_already_running:
-            opencode_cmd = shutil.which("opencode")
-            if opencode_cmd:
-                self.opencode_process = subprocess.Popen(
-                    [opencode_cmd, 'serve', '--port', '4096'],
-                    creationflags=creationflags,
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL
-                )
-            else:
-                self.opencode_process = subprocess.Popen(
-                    'opencode serve --port 4096',
-                    shell=True,
-                    creationflags=creationflags,
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL
-                )
-            print("[System] Started OpenCode headless server on port 4096.")
         self.queue = asyncio.Queue(maxsize=20)
         self.executor = concurrent.futures.ThreadPoolExecutor(max_workers=3)
         self.current_task = None
@@ -179,29 +144,7 @@ class VoiceEngine:
         import config
         self.wake_word = getattr(config, "WAKE_WORD", "jarvis")
         
-        import atexit
-        atexit.register(self._cleanup_opencode)
-        
         self._init_state()
-
-    def _cleanup_opencode(self):
-        """Terminate the opencode background process and its children."""
-        if hasattr(self, 'opencode_process') and self.opencode_process:
-            try:
-                import psutil
-                parent = psutil.Process(self.opencode_process.pid)
-                for child in parent.children(recursive=True):
-                    child.terminate()
-                parent.terminate()
-                parent.wait(timeout=3)
-            except Exception:
-                try:
-                    self.opencode_process.terminate()
-                    self.opencode_process.wait(timeout=3)
-                except Exception:
-                    self.opencode_process.kill()
-            self.opencode_process = None
-            print("[System] OpenCode session terminated.")
 
     def _init_state(self):
         """Initialize conversation state variables. Called from __init__."""
@@ -212,6 +155,7 @@ class VoiceEngine:
         self.pending_context = None
         self.pending_contact = None
         self.notes_mode = False
+        self.codex_chat = CodexChat()
         self.non_llm_events = []
         
         self.ui_state = "idle"
@@ -479,7 +423,6 @@ class VoiceEngine:
                 except:
                     pass
                 self._set_ui_state("idle", "OFFLINE")
-                self._cleanup_opencode()
                 if getattr(self, 'ui_mode', False):
                     from PySide6.QtWidgets import QApplication
                     app = QApplication.instance()
@@ -681,7 +624,6 @@ class VoiceEngine:
                 except:
                     pass
                 self._set_ui_state("idle", "RESTARTING")
-                self._cleanup_opencode()
                 
                 import sys, subprocess, os
                 subprocess.Popen([sys.executable] + sys.argv)
@@ -700,9 +642,30 @@ class VoiceEngine:
                 self._set_ui_state("thinking", "LOOKING AT YOUR SCREEN...")
                 # Pixels and model output are answers only. Speak them directly.
                 response = await analyze_screen(text)
-            elif local_response is None or local_response == "__CODING__":
-                # Delegate to Heavy Coding AI (OpenCode)
-                from agent_runner import run_opencode_task
+            elif local_response and local_response.startswith("__WRITER__"):
+                prompt = local_response.removeprefix("__WRITER__") or text
+
+                try:
+                    await asyncio.wait_for(
+                        self.loop.run_in_executor(self.executor, self.tts.speak, "Writing that for you now, sir."),
+                        timeout=5
+                    )
+                except asyncio.TimeoutError:
+                    pass
+
+                try:
+                    draft = await self.codex_chat.ask(
+                        "Write only the requested text for dictation, without an introduction or Markdown.\n" + prompt,
+                        temporary=True,
+                    )
+                except CodexError as error:
+                    response = str(error)
+                else:
+                    import pyautogui
+                    for start in range(0, len(draft), 8):
+                        await asyncio.to_thread(pyautogui.write, draft[start:start + 8], interval=0.1)
+                    return
+            elif local_response in (None, "__CODING__", "__CODEX_CHAT__"):
                 try:
                     await asyncio.wait_for(
                         self.loop.run_in_executor(self.executor, self.tts.speak, "Right away, sir."),
@@ -714,17 +677,18 @@ class VoiceEngine:
                     self.last_speech_time = _time.time()
                     self.stt.flush_requested = True
                 
-                if hasattr(self, 'non_llm_events') and self.non_llm_events:
-                    context_str = "For context, since our last interaction, the following local commands were executed on the user's system:\n"
-                    for event in self.non_llm_events:
-                        context_str += f"- User requested: '{event['user']}' -> System output: '{event['jarvis']}'\n"
-                    context_str += f"\nNow, please respond to the user's latest request: {text}"
-                    
-                    response = await run_opencode_task(context_str)
-                    self.non_llm_events = []
-                else:
-                    response = await run_opencode_task(text)
-                
+                if local_response == "__CODEX_CHAT__":
+                    text = re.sub(r"^.*?\bcodex\b[\s,:-]*", "", text, count=1, flags=re.I) or "Hello"
+                prompt = text
+                if self.non_llm_events:
+                    events = "\n".join(f"{e['user']} -> {e['jarvis']}" for e in self.non_llm_events)
+                    prompt = f"Recent local Jarvis commands:\n{events}\n\nUser request: {text}"
+                try:
+                    response = await self.codex_chat.ask(prompt, title=text)
+                    self.non_llm_events.clear()
+                except CodexError as error:
+                    response = str(error)
+
             else:
                 # It's a local script execution (e.g. Open Spotify)
                 if local_response == "__NOTES_MODE__":
@@ -736,21 +700,6 @@ class VoiceEngine:
                     local_response = parts[3]
 
 
-                elif local_response.startswith("__WRITER__"):
-                    parts = local_response.split("__")
-                    prompt = parts[2] if len(parts) > 2 and parts[2] else text
-                    
-                    try:
-                        await asyncio.wait_for(
-                            self.loop.run_in_executor(self.executor, self.tts.speak, "Writing that for you now, sir."),
-                            timeout=5
-                        )
-                    except:
-                        pass
-                    
-                    from agent_runner import run_writer_task
-                    asyncio.create_task(run_writer_task(prompt))
-                    return
                 elif local_response.startswith("__CONTEXT__"):
                     parts = local_response.split("__")
                     self.pending_context = parts[2]
@@ -889,21 +838,17 @@ class VoiceEngine:
 
         print("Listening for 'Jarvis'...\n")
 
-        # LLM Warmup and Welcome Message
-        async def _warmup_and_greet():
-            print("[System] Warming up LLM and fetching welcome message...")
+        # Keep the startup greeting local so only user requests start a chat.
+        async def greet():
+            greeting = "Jarvis online and ready, sir."
+            self._set_ui_state("speaking", greeting)
             try:
-                from agent_runner import run_opencode_task
-                response = await run_opencode_task("System startup complete. Please give a very short, 1-sentence greeting indicating you are online and ready, sir.")
-                print(f"Jarvis: {response}")
-                self._set_ui_state("speaking", response)
-                await self.loop.run_in_executor(self.executor, self.tts.speak, response)
-                self._set_ui_state("idle", "ONLINE")
-            except Exception as e:
-                print(f"[System] LLM Warmup failed: {e}")
-                self._set_ui_state("idle", "ONLINE")
+                await self.loop.run_in_executor(self.executor, self.tts.speak, greeting)
+            finally:
+                if self.ui_state == "speaking" and self.ui_text == greeting:
+                    self._set_ui_state("idle", "ONLINE")
 
-        asyncio.create_task(_warmup_and_greet())
+        asyncio.create_task(greet())
 
         # Start Power Monitor (auto-switch CUDA/CPU on AC/battery)
         plugged, batt = get_power_state()
@@ -962,16 +907,18 @@ class VoiceEngine:
                             notes_content = self.current_note_buffer.strip()
                             self._set_ui_state("thinking", "SAVING NOTE...")
                             try:
-                                from agent_runner import run_opencode_task
                                 prompt = f"Generate a short 1 to 4 word file name for the following notes. Output ONLY the file name without any extension or punctuation. Notes: {notes_content[:500]}"
-                                filename_res = await run_opencode_task(prompt)
+                                try:
+                                    filename_res = await self.codex_chat.ask(prompt, temporary=True)
+                                except CodexError:
+                                    filename_res = " ".join(notes_content.split()[:4])
                                 
                                 filename = re.sub(r'[^a-zA-Z0-9_\- ]', '', filename_res.strip())
                                 if not filename:
                                     filename = "Untitled Note"
-                                filename = filename.replace(' ', '_') + ".txt"
+                                filename = filename[:80].replace(' ', '_') + ".txt"
                                 
-                                notes_dir = r"C:\users\goldleom\jarvis-voice-engine\jarvis_notes"
+                                notes_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "jarvis_notes")
                                 os.makedirs(notes_dir, exist_ok=True)
                                 filepath = os.path.join(notes_dir, filename)
                                 

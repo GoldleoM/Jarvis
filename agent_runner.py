@@ -1,289 +1,191 @@
+"""Use the signed-in Codex app server for Jarvis conversations over local stdio."""
 import asyncio
-import aiohttp
-import re
-import os
+from collections import deque
+from contextlib import asynccontextmanager
 import json
+import os
+from pathlib import Path
+import shutil
+import subprocess
 
-async def get_active_session():
-    print("[AgentRunner] Attempting to connect to OpenCode API at http://127.0.0.1:4096/api/session...")
-    async with aiohttp.ClientSession() as session:
-        for endpoint in ["http://127.0.0.1:4096/api/session", "http://127.0.0.1:4096/session"]:
-            try:
-                async with session.get(endpoint) as response:
-                    print(f"[AgentRunner] GET {endpoint} returned status: {response.status}")
-                    if response.status == 200:
-                        data = await response.json()
-                        sessions_list = []
-                        if isinstance(data, list):
-                            sessions_list = data
-                        elif isinstance(data, dict):
-                            if isinstance(data.get('data'), list):
-                                sessions_list = data['data']
-                            elif isinstance(data.get('items'), list):
-                                sessions_list = data['items']
-                            elif 'id' in data:
-                                sessions_list = [data]
-                        
-                        if len(sessions_list) > 0:
-                            session_id = sessions_list[0].get('id')
-                            if session_id:
-                                print(f"[AgentRunner] Found active session ID: {session_id}")
-                                return session_id
-                    else:
-                        print(f"[AgentRunner] API Error response text: {await response.text()}")
-            except Exception as e:
-                print(f"[AgentRunner] Exception during GET {endpoint}: {e}")
-                pass
-        print("[AgentRunner] API returned an empty list of sessions.")
-    return None
+SECTION = "Jarvis Chats"
+CHAT_FOLDER = Path.home() / SECTION
+CONFIG = Path(__file__).with_name("config.json")
+VOICE_INSTRUCTIONS = (
+    "You are Jarvis, a voice assistant. Answer ordinary questions directly in concise, "
+    "natural sentences that sound good aloud. Use tools for coding or file work when requested."
+)
 
-async def run_opencode_task(command: str):
-    print(f"\n[AgentRunner] Forwarding command to persistent OpenCode Console: {command}")
-    
-    # 1. Fetch the ID of the visible terminal session
-    session_id = await get_active_session()
-    if not session_id:
-        print("[AgentRunner] No active session found. Creating a new one...")
-        # Create a new session if none exist
-        async with aiohttp.ClientSession() as session:
-            for endpoint in ["http://127.0.0.1:4096/api/session", "http://127.0.0.1:4096/session"]:
-                try:
-                    async with session.post(endpoint, json={"title": "Jarvis Session"}) as response:
-                        print(f"[AgentRunner] POST {endpoint} returned status: {response.status}")
-                        if response.status == 200:
-                            data = await response.json()
-                            if isinstance(data, dict):
-                                session_id = data.get('id')
-                                if not session_id and isinstance(data.get('data'), dict):
-                                    session_id = data['data'].get('id')
-                            if session_id:
-                                print(f"[AgentRunner] Created new session ID: {session_id}")
-                                break
-                except Exception as e:
-                    print(f"[AgentRunner] Exception during POST {endpoint}: {e}")
-                    pass
-                
-    if not session_id:
-        print("[AgentRunner] CRITICAL: Failed to locate or create an OpenCode session!")
-        return "I could not find the active OpenCode session. Please ensure the terminal is running."
-        
-    url = f"http://127.0.0.1:4096/session/{session_id}/message"
-    # Load model config from config.json or use defaults
-    provider_id = "opencode"
-    model_id = "big-pickle"
-    try:
-        if os.path.exists("config.json"):
-            with open("config.json", "r") as f:
-                config = json.load(f)
-                model_config = config.get("model", {})
-                provider_id = model_config.get("providerID", provider_id)
-                model_id = model_config.get("modelID", model_id)
-    except Exception as e:
-        print(f"[AgentRunner] Warning: Could not load config.json: {e}")
 
-    system_directive = "\n\n[System Directive: You are a Voice Assistant. Provide your answer in natural, conversational sentences. Do NOT use Markdown tables, bullet points, or complex formatting, as your response will be read aloud.]"
-    payload = {
-        "model": {
-            "providerID": provider_id,
-            "modelID": model_id
-        },
-        "agent": "jarvis",
-        "parts": [
-            {
-                "type": "text",
-                "text": command + system_directive
-            }
-        ]
-    }
-    
-    print(f"[AgentRunner] Sending POST to {url} with payload: {payload}")
-    # 2. Send the voice prompt to the terminal
-    try:
-        # Give the agent a long timeout since coding takes time
-        async with aiohttp.ClientSession() as session:
-            async with session.post(url, json=payload, timeout=600) as response:
-                print(f"[AgentRunner] POST {url} returned status: {response.status}")
-                if response.status == 200:
-                    data = await response.json()
-                    print(f"[AgentRunner] Received response JSON from OpenCode API.")
-                    
-                    finish_reason = data.get("info", {}).get("finish")
-                    if finish_reason and finish_reason != "stop":
-                        print("[AgentRunner] AI is using tools. Polling for final response...")
-                        seen_msg_ids = set()
-                        if data.get("id"):
-                            seen_msg_ids.add(data.get("id"))
-                        
-                        for part in data.get("parts", []):
-                            if part.get("type") == "toolCall":
-                                name = part.get("toolCall", {}).get("name", "unknown_tool")
-                                print(f"[AgentRunner] 🛠️  Jarvis is using tool: {name}")
+class CodexError(Exception):
+    """A short error that Jarvis can show or speak."""
 
-                        while True:
-                            await asyncio.sleep(2)
-                            poll_url = f"http://127.0.0.1:4096/session/{session_id}/message?limit=10"
-                            async with session.get(poll_url) as poll_res:
-                                if poll_res.status == 200:
-                                    poll_data = await poll_res.json()
-                                    if poll_data and len(poll_data) > 0:
-                                        for msg in reversed(poll_data):
-                                            msg_id = msg.get("id")
-                                            if msg_id and msg_id not in seen_msg_ids:
-                                                seen_msg_ids.add(msg_id)
-                                                if msg.get("info", {}).get("role") == "assistant":
-                                                    for part in msg.get("parts", []):
-                                                        if part.get("type") == "toolCall":
-                                                            name = part.get("toolCall", {}).get("name", "unknown_tool")
-                                                            print(f"[AgentRunner] 🛠️  Jarvis is using tool: {name}")
 
-                                        latest_msg = poll_data[0]
-                                        info = latest_msg.get("info", {})
-                                        if info.get("role") == "assistant" and info.get("finish") == "stop":
-                                            data = latest_msg
-                                            break
-                    
-                    # 3. Extract the response text
-                    parts = data.get("parts", [])
-                    if parts:
-                        text_parts = [p.get("text", "") for p in parts if p.get("type") == "text"]
-                        full_text = " ".join(text_parts).strip()
-                    else:
-                        full_text = data.get("text", data.get("message", ""))
-                    
-                    if not full_text:
-                        print("[AgentRunner] API returned 200 but text was empty.")
-                        return "Task finished successfully."
-                        
-                    print(f"[AgentRunner] Raw AI Response Length: {len(full_text)} characters")
-                    # 4. Clean up the text for Voice TTS (Remove code blocks, markdown)
-                    clean_text = re.sub(r'```.*?```', 'a code block', full_text, flags=re.DOTALL)
-                    clean_text = re.sub(r'\*.*?\*', '', clean_text)
-                    clean_text = clean_text.replace('\n', ' ')
-                    
-                    # 5. Prevent Jarvis from reading a massive essay
-                    sentences = [s.strip() for s in clean_text.split('.') if s.strip()]
-                    if len(sentences) > 6:
-                        # Return the first 2 and the last 2 sentences to ensure we don't miss the conclusion
-                        return ". ".join(sentences[:2]) + " ... " + ". ".join(sentences[-2:]) + "."
-                    return clean_text
-                else:
-                    error_text = await response.text()
-                    print(f"[AgentRunner] ERROR from API: {error_text}")
-                    return f"OpenCode returned an error code: {response.status}"
-    except asyncio.CancelledError:
-        print("[AgentRunner] Task cancelled by user!")
-        # Optional: Send an abort request to the session to stop the AI
+def codex_binary():
+    if os.name != "nt":
+        binary = shutil.which("codex")
+    else:
+        binary = shutil.which("codex.exe")
+        if not binary:
+            # Explorer may lack npm on PATH. Launch its native binary without cmd.exe.
+            shim = shutil.which("codex.cmd")
+            roots = [Path(shim).parent] if shim else []
+            if os.environ.get("APPDATA"):
+                roots.append(Path(os.environ["APPDATA"]) / "npm")
+            for root in roots:
+                package = root / "node_modules/@openai/codex"
+                for pattern in ("node_modules/@openai/codex-win32-*/vendor/*", "vendor/*"):
+                    for target in package.glob(pattern):
+                        for relative in ("bin/codex.exe", "codex/codex.exe"):
+                            if (target / relative).is_file():
+                                return str(target / relative)
+    if not binary:
+        raise CodexError("Install the Codex CLI and run codex login to connect Jarvis.")
+    return binary
+
+
+class AppServer:
+    def __init__(self, process):
+        self.process = process
+        self.request_id = 0
+
+    async def send(self, message):
+        self.process.stdin.write(json.dumps(message).encode() + b"\n")
+        await self.process.stdin.drain()
+
+    async def receive(self):
+        while line := await self.process.stdout.readline():
+            event = json.loads(line)
+            if "id" in event and "method" in event:
+                # A voice turn has no interactive tool-approval dialog.
+                await self.send({"id": event["id"], "error": {"code": -32601,
+                                 "message": "This interaction requires the Codex app."}})
+                continue
+            return event
+        raise CodexError("The Codex connection closed. Please try again.")
+
+    async def request(self, method, params, *, early_events=None):
+        self.request_id += 1
+        await self.send({"method": method, "id": self.request_id, "params": params})
+        while True:
+            event = await self.receive()
+            if event.get("id") == self.request_id:
+                if "error" in event:
+                    raise CodexError("Codex reported: " + event["error"]["message"][:240])
+                return event["result"]
+            if early_events is not None and event.get("method") in {"item/completed", "turn/completed"}:
+                early_events.append(event)
+
+    async def section_id(self):
+        cursor = None
+        while True:
+            page = await self.request("threadSection/list", {"cursor": cursor})
+            for section in page["data"]:
+                if section["name"] == SECTION:
+                    return section["id"]
+            cursor = page.get("nextCursor")
+            if not cursor:
+                created = await self.request("threadSection/create", {"name": SECTION})
+                return created["section"]["id"]
+
+    async def answer(self, thread_id, prompt):
+        pending = deque()
+        result = await self.request("turn/start", {"threadId": thread_id,
+                                    "input": [{"type": "text", "text": prompt}]}, early_events=pending)
+        turn_id = result["turn"]["id"]
         try:
-            async with aiohttp.ClientSession() as session:
-                await session.post(f"http://127.0.0.1:4096/api/session/{session_id}/abort")
-        except:
-            pass
-        raise
-    except Exception as e:
-        print(f"[AgentRunner] Connection error during POST prompt: {e}")
-        return "I encountered a connection error while speaking to OpenCode."
+            return await self.final_text(thread_id, turn_id, pending)
+        except asyncio.CancelledError:
+            try:
+                await asyncio.wait_for(self.request("turn/interrupt", {"threadId": thread_id, "turnId": turn_id}), 2)
+            except (asyncio.TimeoutError, OSError, CodexError):
+                pass
+            raise
+
+    async def final_text(self, thread_id, turn_id, pending):
+        text = ""
+        while True:
+            event = pending.popleft() if pending else await self.receive()
+            params = event.get("params", {})
+            if params.get("threadId") != thread_id:
+                continue
+            if event.get("method") == "item/completed" and params.get("turnId") == turn_id:
+                item = params["item"]
+                if item["type"] == "agentMessage" and item.get("phase") != "commentary":
+                    text = item["text"].strip()
+            if event.get("method") != "turn/completed" or params["turn"]["id"] != turn_id:
+                continue
+            turn = params["turn"]
+            if turn["status"] != "completed":
+                reason = (turn.get("error") or {}).get("message") or turn["status"]
+                raise CodexError("Codex could not finish the reply: " + reason[:240])
+            if not text:
+                raise CodexError("Codex finished without a text reply. Please try again.")
+            return text
 
 
-async def run_writer_task(prompt: str):
-    print(f"\n[AgentRunner] Forwarding Writer Task to OpenCode: {prompt}")
-    session_id = await get_active_session()
-    if not session_id:
-        print("[AgentRunner] No active session found for Writer Task.")
-        return
-        
-    url = f"http://127.0.0.1:4096/session/{session_id}/message"
-    
-    constrained_prompt = f"You are a ghostwriter tool. Write exactly what is requested below and NOTHING ELSE. Do NOT include any introductory sentences, conversational filler, markdown formatting, or concluding sentences. Only output the pure requested text.\n\nRequest: {prompt}"
-
-    provider_id = "opencode"
-    model_id = "big-pickle"
+@asynccontextmanager
+async def connect(folder):
+    folder.mkdir(parents=True, exist_ok=True)
+    process = await asyncio.create_subprocess_exec(
+        codex_binary(), "app-server", cwd=folder,
+        stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.DEVNULL, limit=16 * 1024 * 1024,
+        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+    )
     try:
-        import os, json
-        if os.path.exists("config.json"):
-            with open("config.json", "r") as f:
-                config = json.load(f)
-                model_config = config.get("model", {})
-                provider_id = model_config.get("providerID", provider_id)
-                model_id = model_config.get("modelID", model_id)
-    except:
-        pass
+        server = AppServer(process)
+        await server.request("initialize", {"clientInfo": {"name": "jarvis", "title": "Jarvis", "version": "1"},
+                                             "capabilities": {"experimentalApi": True}})
+        await server.send({"method": "initialized"})
+        yield server
+    finally:
+        if process.returncode is None:
+            process.stdin.close()
+            try:
+                await asyncio.wait_for(process.communicate(), timeout=3)
+            except asyncio.TimeoutError:
+                if process.returncode is None:
+                    process.kill()
+                await process.communicate()
 
-    payload = {
-        "model": {
-            "providerID": provider_id,
-            "modelID": model_id
-        },
-        "agent": "jarvis",
-        "parts": [
-            {
-                "type": "text",
-                "text": constrained_prompt
-            }
-        ]
-    }
-    
-    try:
-        async with aiohttp.ClientSession() as session:
-            async with session.post(url, json=payload, timeout=600) as response:
-                if response.status == 200:
-                    data = await response.json()
-                    
-                    finish_reason = data.get("info", {}).get("finish")
-                    if finish_reason and finish_reason != "stop":
-                        seen_msg_ids = set()
-                        if data.get("id"):
-                            seen_msg_ids.add(data.get("id"))
-                            
-                        for part in data.get("parts", []):
-                            if part.get("type") == "toolCall":
-                                name = part.get("toolCall", {}).get("name", "unknown_tool")
-                                print(f"[AgentRunner] 🛠️  Jarvis is using tool: {name}")
 
-                        while True:
-                            await asyncio.sleep(2)
-                            poll_url = f"http://127.0.0.1:4096/session/{session_id}/message?limit=10"
-                            async with session.get(poll_url) as poll_res:
-                                if poll_res.status == 200:
-                                    poll_data = await poll_res.json()
-                                    if poll_data and len(poll_data) > 0:
-                                        for msg in reversed(poll_data):
-                                            msg_id = msg.get("id")
-                                            if msg_id and msg_id not in seen_msg_ids:
-                                                seen_msg_ids.add(msg_id)
-                                                if msg.get("info", {}).get("role") == "assistant":
-                                                    for part in msg.get("parts", []):
-                                                        if part.get("type") == "toolCall":
-                                                            name = part.get("toolCall", {}).get("name", "unknown_tool")
-                                                            print(f"[AgentRunner] 🛠️  Jarvis is using tool: {name}")
+class CodexChat:
+    """A Jarvis launch owns one conversation. Only its returned ID can be resumed."""
+    def __init__(self, folder=CHAT_FOLDER):
+        self.folder = folder
+        self.thread_id = None
+        self.lock = asyncio.Lock()
 
-                                        latest_msg = poll_data[0]
-                                        info = latest_msg.get("info", {})
-                                        if info.get("role") == "assistant" and info.get("finish") == "stop":
-                                            data = latest_msg
-                                            break
-                    
-                    parts = data.get("parts", [])
-                    if parts:
-                        text_parts = [p.get("text", "") for p in parts if p.get("type") == "text"]
-                        full_text = " ".join(text_parts).strip()
-                    else:
-                        full_text = data.get("text", data.get("message", "")).strip()
-                    
-                    if full_text:
-                        import pyautogui
-                        def do_typing():
-                            pyautogui.write(full_text, interval=0.1) # approx 120WPM
-                        import asyncio
-                        await asyncio.get_event_loop().run_in_executor(None, do_typing)
-                        print("[AgentRunner] Typing completed.")
-                        
-    except Exception as e:
-        print(f"[AgentRunner] Exception in Writer Task: {e}")
+    async def ask(self, prompt, *, title=None, temporary=False):
+        try:
+            async with self.lock:
+                return await asyncio.wait_for(self._ask(prompt, title, temporary), timeout=180)
+        except asyncio.TimeoutError as exc:
+            raise CodexError("Codex took too long to reply. You can try again.") from exc
+        except (OSError, ValueError) as exc:
+            raise CodexError("Jarvis could not connect to Codex. Check that codex login status shows you are signed in.") from exc
 
-if __name__ == "__main__":
-
-    # Test block
-    async def test():
-        res = await run_opencode_task("Hello Jarvis, what is 2 plus 2?")
-        print(f"Final output: {res}")
-    asyncio.run(test())
+    async def _ask(self, prompt, title, temporary):
+        async with connect(self.folder) as server:
+            params = {"cwd": str(self.folder), "sandbox": "read-only" if temporary else "workspace-write",
+                      "approvalPolicy": "never", "developerInstructions": VOICE_INSTRUCTIONS}
+            try:
+                model = json.loads(CONFIG.read_text(encoding="utf-8")).get("codex", {}).get("model")
+            except (OSError, ValueError):
+                model = None
+            if model:
+                params["model"] = model
+            if self.thread_id and not temporary:
+                await server.request("thread/resume", dict(params, threadId=self.thread_id, excludeTurns=True))
+                thread_id = self.thread_id
+            else:
+                result = await server.request("thread/start", dict(params, ephemeral=temporary))
+                thread_id = result["thread"]["id"]
+                if not temporary:
+                    section_id = await server.section_id()
+                    await server.request("thread/section/move", {"threadId": thread_id, "sectionId": section_id})
+                    await server.request("thread/name/set", {"threadId": thread_id,
+                                         "name": " ".join((title or prompt).split())[:80]})
+                    self.thread_id = thread_id
+            return await server.answer(thread_id, prompt)

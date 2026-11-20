@@ -140,8 +140,7 @@ if (settingsBtn) {
                             const selectedMic = mics.find(m => m.index === micIndex);
                             document.getElementById('mic-display').innerText = selectedMic ? (selectedMic.index === -1 ? selectedMic.name : `[${selectedMic.index}] ${selectedMic.name}`) : `Unknown (${micIndex})`;
                             
-                            document.getElementById('setting-opencode-model').value = s.OPENCODE_MODEL || '';
-                            document.getElementById('setting-opencode-provider').value = s.OPENCODE_PROVIDER || '';
+                            document.getElementById('setting-codex-model').value = s.CODEX_MODEL || '';
                             document.getElementById('setting-whisper-model').value = s.WHISPER_MODEL || 'medium.en';
                             document.getElementById('whisper-display').innerText = s.WHISPER_MODEL || 'medium.en';
                             document.getElementById('setting-compute-type').value = s.WHISPER_COMPUTE_TYPE || 'float16';
@@ -173,8 +172,7 @@ if (saveSettingsBtn) {
         const s = {
             WAKE_WORD: document.getElementById('setting-wake-word').value,
             MIC_INDEX: Number(document.getElementById('setting-mic-index').value) < 0 ? null : parseInt(document.getElementById('setting-mic-index').value),
-            OPENCODE_MODEL: document.getElementById('setting-opencode-model').value,
-            OPENCODE_PROVIDER: document.getElementById('setting-opencode-provider').value,
+            CODEX_MODEL: document.getElementById('setting-codex-model').value,
             WHISPER_MODEL: document.getElementById('setting-whisper-model').value,
             WHISPER_COMPUTE_TYPE: document.getElementById('setting-compute-type').value || 'float16',
             WHISPER_DEVICE: document.getElementById('setting-whisper-device').value || 'cuda',

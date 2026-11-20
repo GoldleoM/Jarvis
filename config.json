@@ -1,7 +1,6 @@
 {
-    "model": {
-        "providerID": "opencode",
-        "modelID": "big-pickle"
+    "codex": {
+        "model": ""
     },
     "UI": {
         "ORB_COLOR": "#00ffff",
