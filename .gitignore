@@ -6,6 +6,8 @@ voice_print.pt
 silero_vad.onnx
 *.exe
 *.ico
+!/Jarvis.exe
+!/jarvis.ico
 *.log
 pi_1million.txt
 pi_million.py

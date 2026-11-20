@@ -2,6 +2,8 @@
 
 A low-latency, locally-run voice assistant inspired by Tony Stark's J.A.R.V.I.S. Built with Python, faster-whisper, Piper TTS, and a custom semantic routing engine.
 
+On a configured Windows machine, double-click **Jarvis.exe** in the project folder. The orb and tray appear while the voice models load. When the status reads **ONLINE**, type a command and press Enter, or say “Jarvis, what time is it?”
+
 ## Architecture
 
 ```
@@ -51,7 +53,7 @@ Microphone → Silero VAD → Wake Word Detection → faster-whisper STT
 
 - Python 3.10+
 - CUDA-capable GPU (recommended for real-time inference)
-- Piper TTS executable (download from rhasspy/piper releases on GitHub)
+- Piper TTS and the configured voice model
 - Microphone
 
 ## Setup
@@ -64,9 +66,9 @@ pip install -r requirements.txt
 
 2. Download a Piper voice model (.onnx + .json) from Hugging Face (e.g., rhasspy/piper-voices) and place it in the `models/` directory.
 
-3. Download the Piper TTS executable from the releases page and set its path in `config.py` under `PIPER_PATH`.
+3. The Python dependencies install the Piper command. If using a separate Piper installation, set `PIPER_PATH` in `config.py` to its executable. The default voice expects `models/en_GB-alba-medium.onnx` and `models/en_GB-alba-medium.onnx.json`. Allow the speech recognizer and semantic router to download their models on first use.
 
-4. Run:
+4. Launch **Jarvis.exe** for the desktop interface. For the console entry point, run
 
 ```bash
 python main.py
@@ -91,13 +93,13 @@ All settings live in `config.py`:
 
 ## UI Mode
 
-A desktop UI built with PySide6 is available under `jarvis_ui.py` and the `ui/` directory. It features:
+`Jarvis.exe` opens the PySide6 interface using your installed Python environment, local models, and settings. Keep the executable alongside `jarvis_ui.py` and `ui/`. Create a Windows shortcut if you want to launch it from the desktop. The launcher looks for dependencies in the project's `.venv` or `venv`, the active Conda environment, Python installations on PATH, and registered Conda environments.
 
-- System tray icon for background listening
-- Real-time VU meter visualization
-- Chat panel with conversation history
-- Dark glassmorphism theme
-- Always-on-top compact mode
+Use **Alt+Space** to hide or show the overlay. The tray menu also offers **Show UI**, **View Logs**, **Restart Jarvis**, and **Quit Jarvis**. Use the gear button to select or test the microphone. For OpenCode-backed replies, install and configure OpenCode locally.
+
+To start the same UI from a terminal, run `python jarvis_ui.py`. To rebuild the checked-in executable, run `.\launcher\build.ps1` in PowerShell on Windows.
+
+Run the speech and synthesis tests with `python -m unittest discover -s tests -v`. For the desktop integration test, install `websocket-client` in the test environment, close other Jarvis instances, and run `python tests/windows_launch_smoke.py`. It opens the real executable, tests the microphone, sends a time request, checks history, and quits.
 
 ## Project Structure
 

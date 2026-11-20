@@ -13,6 +13,7 @@ scipy
 
 # Intent Routing & Language Models
 semantic-router
+transformers
 huggingface_hub
 
 # Desktop Automation & Skills
