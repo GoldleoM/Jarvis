@@ -42,6 +42,8 @@ class CommandTests(unittest.IsolatedAsyncioTestCase):
             "how do I turn down the volume?": None, "please don't open Chrome": "__IGNORE__",
             "shut down the computer": "power_action", "close Spotify": "kill_task",
             "what time is it": "get_time", "take a screenshot": "take_screenshot",
+            "what is the capital of Japan?": None, "is it raining outside": "weather",
+            "Ask Codex to explain a timer": "__CODEX_CHAT__",
             "what's fifteen percent of 80": "math", "subtract 8 from 30": "math",
             "describe my screen": "__VISION__", "find Save on my screen": "__VISION__",
             "what does the error on my screen say?": "__VISION__",
@@ -105,6 +107,35 @@ class CommandTests(unittest.IsolatedAsyncioTestCase):
         engine.tts.speak.assert_called_once_with("__RESTART__")
         self.assertEqual(engine.ui_state, "idle")
         self.assertEqual(engine.non_llm_events, [])
+
+    async def test_codex_fallback_and_local_commands(self):
+        from agent_runner import CodexError
+
+        engine = command_engine(self.router)
+        engine.codex_chat.ask = AsyncMock(side_effect=[CodexError("Please sign in."), "Tokyo", "Tokyo"])
+        await engine.handle_command("what time is it")
+        engine.codex_chat.ask.assert_not_awaited()
+        await engine.handle_command("what is the capital of Japan?")
+        self.assertEqual(engine.tts.speak.call_args.args[0], "Please sign in.")
+        await engine.handle_command("what is the capital of Japan?")
+        self.assertIn("what time is it", engine.codex_chat.ask.await_args.args[0])
+        await engine.handle_command("Ask Codex which city you just named")
+        engine.codex_chat.ask.assert_awaited_with("which city you just named", title="which city you just named")
+        self.assertEqual(engine.tts.speak.call_args.args[0], "Tokyo")
+        self.assertEqual(engine.ui_state, "idle")
+
+    async def test_writer_types_only_a_successful_temporary_reply(self):
+        from agent_runner import CodexError
+
+        engine = command_engine(Mock())
+        engine.gatekeeper.route_command.return_value = "__WRITER__A short greeting"
+        engine.codex_chat.ask = AsyncMock(side_effect=[CodexError("Please sign in."), "Hello there"])
+        with patch("pyautogui.write") as write:
+            await engine.handle_command("write a short greeting")
+            write.assert_not_called()
+            await engine.handle_command("write a short greeting")
+            self.assertEqual("".join(call.args[0] for call in write.call_args_list), "Hello there")
+        self.assertTrue(engine.codex_chat.ask.await_args.kwargs["temporary"])
 
     async def test_website_keeps_path_case(self):
         engine = command_engine(self.router)

@@ -18,6 +18,7 @@ models/
 *.wav
 test_*.py
 !/tests/test_tools_and_vision.py
+!/tests/test_codex_chat.py
 
 # User-specific data
 contacts.json

@@ -31,7 +31,7 @@ def wait_for(description, check, timeout=60):
     raise TimeoutError(description)
 
 
-def exercise(app, port, test_tools=False):
+def exercise(app, port, test_tools=False, test_codex=False):
     def find_page():
         if app.poll() is not None:
             raise RuntimeError(f"Launcher exited with {app.returncode}")
@@ -141,6 +141,9 @@ def exercise(app, port, test_tools=False):
                 check_reply("Find the Lunar Orchard label on my screen", 'I found "Lunar Orchard"')
             finally:
                 fixture.destroy()
+        if test_codex:
+            check_reply("What is the capital of Japan?", "Tokyo")
+            check_reply("Ask Codex which city you just named. Reply with just the city.", "Tokyo")
         send("goodbye")
     finally:
         client.close()
@@ -151,6 +154,7 @@ def exercise(app, port, test_tools=False):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--tools", action="store_true", help="Also exercise arithmetic, timer follow-up and live OCR")
+    parser.add_argument("--codex", action="store_true", help="Exercise a real Codex chat and follow-up")
     args = parser.parse_args()
     launcher = Path(__file__).resolve().parents[1] / "Jarvis.exe"
     with socket.socket() as listener:
@@ -160,7 +164,7 @@ if __name__ == "__main__":
     with tempfile.TemporaryDirectory() as cwd:
         app = subprocess.Popen([str(launcher)], cwd=cwd, env=env)
         try:
-            exercise(app, port, args.tools)
+            exercise(app, port, args.tools, args.codex)
         finally:
             if app.poll() is None:
                 for child in reversed(psutil.Process(app.pid).children(recursive=True)):

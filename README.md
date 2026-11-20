@@ -13,8 +13,8 @@ Microphone → Silero VAD → Wake Word Detection → faster-whisper STT
                                              Semantic Router (Gatekeeper)
                                            ┌──────────────┼──────────────┐
                                            ▼              ▼              ▼
-                                     Local Skills    OpenCode LLM    Confirmation
-                                     (app/system)    (Gemma 4-31B)   (timers, etc.)
+                                     Local Skills    Codex chat      Confirmation
+                                     (app/system)    (Codex CLI)     (power actions)
                                            │              │
                                            ▼              ▼
                                         Piper TTS ←──────┘
@@ -27,7 +27,7 @@ Microphone → Silero VAD → Wake Word Detection → faster-whisper STT
 - Speech-to-text using faster-whisper medium.en on CUDA (float16)
 - Text-to-speech using Piper TTS with British English (Alba) voice
 - Semantic routing for local commands (apps, system control, timers, WhatsApp)
-- Integration with OpenCode LLM agent for complex/coding tasks
+- Codex chat for follow-up questions and coding requests
 - Automatic app scanning and discovery (app_scanner.py)
 - WiFi radio toggle (on/off via Windows Runtime API)
 - System tray support (PySide6 UI mode) with chat panel and VU meter
@@ -47,7 +47,7 @@ For image descriptions, Jarvis first tries Ollama's `moondream:latest` on the lo
 python -c "from huggingface_hub import snapshot_download; snapshot_download('HuggingFaceTB/SmolVLM-256M-Instruct', allow_patterns=['*.json','*.safetensors','*.jinja','*.txt'], ignore_patterns=['onnx/*','runs/*'])"
 ```
 
-Screen requests run on demand. The normal command path keeps the capture in memory, and vision answers are excluded from the command history sent to OpenCode. Windows needs an installed OCR language for text recognition.
+Screen requests run on demand. The normal command path keeps the capture in memory, and vision answers are excluded from the command history sent to Codex. Windows needs an installed OCR language for text recognition.
 
 ## Tech Stack
 
@@ -58,7 +58,7 @@ Screen requests run on demand. The normal command path keeps the capture in memo
 | Wake Word | Custom keyword spotting (0.85 threshold) |
 | Text-to-Speech | Piper TTS (en_GB-alba-medium) |
 | Intent Routing | Custom semantic Gatekeeper |
-| LLM Agent | OpenCode / Gemma 4-31B-it |
+| LLM Agent | Codex CLI using your signed-in account |
 | Audio | sounddevice, numpy |
 | UI (optional) | PySide6 (Qt 6) |
 | GPU | CUDA + float16 inference |
@@ -109,11 +109,17 @@ All settings live in `config.py`:
 
 `Jarvis.exe` opens the PySide6 interface using your installed Python environment, local models, and settings. Keep the executable alongside `jarvis_ui.py` and `ui/`. Create a Windows shortcut if you want to launch it from the desktop. The launcher looks for dependencies in the project's `.venv` or `venv`, the active Conda environment, Python installations on PATH, and registered Conda environments.
 
-Use **Alt+Space** to hide or show the overlay. The tray menu also offers **Show UI**, **View Logs**, **Restart Jarvis**, and **Quit Jarvis**. Use the gear button to select or test the microphone. For OpenCode-backed replies, install and configure OpenCode locally.
+Use **Alt+Space** to hide or show the overlay. The tray menu also offers **Show UI**, **View Logs**, **Restart Jarvis**, and **Quit Jarvis**. Use the gear button to select or test the microphone.
+
+### Codex chat
+
+Install the Codex CLI, sign in with `codex login`, and check `codex login status`. Jarvis uses the active Codex model unless you choose another in the orb settings. Built-in tools work independently of Codex.
+
+Ask a general question or say "Ask Codex" followed by your request. The first question creates a conversation in the **Jarvis Chats** sidebar section in Codex. Follow-ups in the same Jarvis launch resume that conversation. Restarting Jarvis starts a fresh conversation on the next request. The working folder for these threads and requested coding files is `%USERPROFILE%\Jarvis Chats`. Codex stores the message history. The startup greeting is local, and dictation and note-title requests use temporary threads.
 
 To start the same UI from a terminal, run `python jarvis_ui.py`. To rebuild the checked-in executable, run `.\launcher\build.ps1` in PowerShell on Windows.
 
-Run `python -m unittest discover -s tests -v` for speech, synthesis, routing, timer follow-ups, confirmation handling, OCR and visual inference. The offline image inference test uses the cached model described above. For the desktop integration test, install `websocket-client` and `Pillow` in the test environment, close other Jarvis instances, and run `python tests/windows_launch_smoke.py --tools`. It tests the executable, orb, shortcut, microphone, chat, a timer follow-up, and recognition of a temporary on-screen label before quitting.
+Run `python -m unittest discover -s tests -v` for speech, synthesis, routing, timer follow-ups, confirmation handling, OCR and visual inference. The offline image inference test uses the cached model described above. For the desktop integration test, install `websocket-client` and `Pillow` in the test environment, close other Jarvis instances, and run `python tests/windows_launch_smoke.py --tools`. It tests the executable, orb, shortcut, microphone, chat, a timer follow-up, and recognition of a temporary on-screen label before quitting. Add `--codex` to send a real two-turn chat through the orb using your signed-in Codex account.
 
 ## Project Structure
 
@@ -123,7 +129,7 @@ Run `python -m unittest discover -s tests -v` for speech, synthesis, routing, ti
 ├── stt.py               # Speech-to-text (faster-whisper)
 ├── tts.py               # Text-to-speech (Piper)
 ├── router.py            # Semantic command router
-├── agent_runner.py      # OpenCode LLM integration
+├── agent_runner.py      # Codex app-server integration
 ├── app_scanner.py       # Automatic app discovery
 ├── jarvis_ui.py         # PySide6 desktop UI
 ├── toggle_wifi.ps1      # WiFi radio toggle script
