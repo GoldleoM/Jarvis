@@ -1,135 +1,214 @@
+"""Answer explicit screen questions from a single, current, local screenshot."""
 import asyncio
-import aiohttp
 import base64
 import io
-import subprocess
-import time
 import json
 import os
+from pathlib import Path
+import re
+import subprocess
+import sys
+import tempfile
+
+import aiohttp
+from PIL import ImageGrab
 
 VISION_MODEL = "moondream:latest"
-SCREENSHOT_PATH = os.path.join(os.environ.get('TEMP', os.path.expanduser('~')), '_jarvis_screen.png')
+OLLAMA_URL = "http://127.0.0.1:11434/api/generate"
+
+
+def _grab_screen():
+    # The primary display is also the display used by the Jarvis HUD.
+    return ImageGrab.grab().convert("RGB")
+
 
 def capture_screenshot():
-    """Capture the primary screen to a PNG file. Returns the file path."""
+    """Compatibility helper for callers that need a PNG path. Caller owns the file."""
     try:
-        result = subprocess.run(['powershell', '-Command', f'''
-Add-Type -AssemblyName System.Windows.Forms
-Add-Type -AssemblyName System.Drawing
-$bounds = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
-$bitmap = New-Object System.Drawing.Bitmap $bounds.Width, $bounds.Height
-$graphics = [System.Drawing.Graphics]::FromImage($bitmap)
-$graphics.CopyFromScreen($bounds.X, $bounds.Y, 0, 0, $bounds.Size)
-$bitmap.Save('{SCREENSHOT_PATH}', [System.Drawing.Imaging.ImageFormat]::Png)
-$graphics.Dispose()
-$bitmap.Dispose()
-Write-Output "OK"
-'''], capture_output=True, text=True, timeout=10)
-        
-        if os.path.exists(SCREENSHOT_PATH):
-            return SCREENSHOT_PATH
-        return None
-    except Exception as e:
-        print(f"[Vision] Screenshot capture failed: {e}")
+        image = _grab_screen()
+        with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as output:
+            image.save(output, format="PNG")
+            return output.name
+    except OSError:
         return None
 
 
 def encode_image(image_path):
-    """Read an image file and return base64 encoded string."""
-    with open(image_path, 'rb') as f:
-        return base64.b64encode(f.read()).decode('utf-8')
+    with open(image_path, "rb") as source:
+        return base64.b64encode(source.read()).decode("ascii")
 
 
-async def analyze_screen(prompt="What do you see on this screen? Describe it briefly.", model=VISION_MODEL):
-    """
-    Take a screenshot and analyze it with the vision model.
-    Returns a natural language description.
-    """
-    print(f"\n[Vision] Capturing screenshot for analysis...")
-    start_time = time.time()
-    
-    # Capture screenshot in executor to avoid blocking
-    image_path = await asyncio.get_event_loop().run_in_executor(None, capture_screenshot)
-    
-    if not image_path:
-        return "I'm sorry, I couldn't capture the screen."
-    
-    # Encode image
-    b64 = await asyncio.get_event_loop().run_in_executor(None, encode_image, image_path)
-    print(f"[Vision] Screenshot captured ({len(b64)} bytes) in {time.time()-start_time:.1f}s")
-    
-    # System prompt for concise screen descriptions
-    system_prompt = (
-        "You are Jarvis, a precise voice assistant analyzing the user's screen. "
-        "Describe what you see concisely in 1 to 3 short sentences. "
-        "Focus on the most important elements: open windows, applications, content, and UI elements. "
-        "Do not use markdown or formatting. Speak naturally."
+async def _ocr(image):
+    from winrt.windows.graphics.imaging import BitmapAlphaMode, BitmapPixelFormat, SoftwareBitmap
+    from winrt.windows.media.ocr import OcrEngine
+    from winrt.windows.storage.streams import DataWriter
+
+    engine = OcrEngine.try_create_from_user_profile_languages()
+    if engine is None:
+        raise RuntimeError("Windows has no OCR language installed")
+    image = image.convert("RGBA")
+    image.thumbnail((OcrEngine.max_image_dimension,) * 2)
+    with DataWriter() as writer:
+        writer.write_bytes(image.tobytes("raw", "BGRA"))
+        with SoftwareBitmap.create_copy_from_buffer(
+            writer.detach_buffer(), BitmapPixelFormat.BGRA8, *image.size, BitmapAlphaMode.IGNORE
+        ) as bitmap:
+            result = await engine.recognize_async(bitmap)
+    return result.lines, image.size
+
+
+def _target_label(prompt):
+    cmd = re.sub(r"^(?:(?:please|can you|could you|would you)\s+)+", "", prompt.strip(), flags=re.I)
+    match = re.match(r"(?:find|locate|look for|search for|where (?:is|are)|do you see|see|is there)\s+(.+)", cmd, re.I)
+    if not match:
+        return None
+    target = re.sub(r"\s+on (?:the |my |this )?(?:screen|display|monitor)\b.*", "", match[1], flags=re.I)
+    quoted = re.search(r'["“](.+?)["”]', target)
+    if quoted:
+        return quoted[1]
+    target = re.sub(r"^(?:the |a |an )?(?:(?:button|text|label) (?:called |saying |labeled )?)?", "", target, flags=re.I)
+    return re.sub(r"\s+(?:button|label)$", "", target.strip(" '.?!"), flags=re.I).strip()
+
+
+def _find_label(lines, size, target):
+    needle = re.findall(r"\w+", target.casefold())
+    if not needle:
+        return None
+    for line in lines:
+        words = [(token, word.bounding_rect) for word in line.words
+                 for token in re.findall(r"\w+", word.text.casefold())]
+        tokens = [token for token, _ in words]
+        for index in range(len(words) - len(needle) + 1):
+            if tokens[index:index + len(needle)] == needle:
+                first, last = words[index][1], words[index + len(needle) - 1][1]
+                x = (first.x + last.x + last.width) / (2 * size[0])
+                y = (first.y + first.height / 2) / size[1]
+                horizontal = ("left", "center", "right")[min(2, int(x * 3))]
+                vertical = ("upper", "middle", "lower")[min(2, int(y * 3))]
+                return f'I found "{target}" in the {vertical} {horizontal} of the screen.'
+    return None
+
+
+def _excerpt(lines):
+    text = " ".join(line.text for line in lines).strip()
+    if len(text) <= 650:
+        return text
+    return text[:650].rsplit(" ", 1)[0] + "…"
+
+
+def _png(image):
+    with io.BytesIO() as data:
+        image.save(data, format="PNG")
+        return data.getvalue()
+
+
+async def _describe_locally(png, question):
+    # Keep the vision model's native DLLs and GPU allocation outside the voice engine.
+    env = dict(os.environ, MKL_THREADING_LAYER="SEQUENTIAL")
+    env.pop("KMP_DUPLICATE_LIB_OK", None)
+    worker = await asyncio.create_subprocess_exec(
+        sys.executable, "-X", "utf8", str(Path(__file__).with_name("vision_model.py")),
+        stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+        env=env, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
     )
-    
-    url = "http://localhost:11434/api/generate"
-    payload = {
-        "model": model,
-        "prompt": prompt,
-        "images": [b64],
-        "stream": False,
-        "system": system_prompt,
-        "options": {
-            "num_predict": 200,
-            "temperature": 0.3
-        }
-    }
-    
-    print(f"[Vision] Sending to {model}...")
     try:
-        async with aiohttp.ClientSession() as session:
-            async with session.post(url, json=payload, timeout=120) as response:
-                if response.status == 200:
-                    data = await response.json()
-                    answer = data.get("response", "").strip()
-                    elapsed = time.time() - start_time
-                    print(f"[Vision] Analysis complete ({elapsed:.1f}s): {answer[:100]}...")
-                    
-                    if not answer:
-                        return "I looked at the screen but couldn't make sense of it."
-                    return answer
-                else:
-                    error_text = await response.text()
-                    print(f"[Vision] API Error {response.status}: {error_text[:200]}")
-                    return "I encountered an error while trying to analyze the screen."
-    except asyncio.CancelledError:
-        print("[Vision] Analysis cancelled by user.")
-        raise
-    except Exception as e:
-        print(f"[Vision] Connection error: {e}")
-        return "I'm unable to connect to the vision model. Please ensure Ollama is running."
+        request = json.dumps(question).encode("utf-8") + b"\n" + png
+        stdout, stderr = await asyncio.wait_for(worker.communicate(request), timeout=120)
+        if worker.returncode != 0:
+            details = stderr.decode("utf-8", errors="replace").strip().splitlines()
+            raise RuntimeError(details[-1][:240] if details else f"worker exit {worker.returncode}")
+        return json.loads(stdout)
+    finally:
+        if worker.returncode is None:
+            try:
+                worker.kill()
+            except ProcessLookupError:
+                pass
+            await worker.wait()
+
+
+async def _describe_with_ollama(png, question, model):
+    payload = {"model": model, "prompt": question, "images": [base64.b64encode(png).decode("ascii")],
+               "stream": False, "system": "Answer the user's question about the image in a few spoken sentences. "
+                                         "Report uncertainty when the detail is unreadable.",
+               "options": {"num_predict": 160, "temperature": 0.2}}
+    timeout = aiohttp.ClientTimeout(total=120, sock_connect=2)
+    async with aiohttp.ClientSession(timeout=timeout) as session:
+        async with session.post(OLLAMA_URL, json=payload) as response:
+            response.raise_for_status()
+            return (await response.json()).get("response", "").strip()
+
+
+async def analyze_image(image, prompt, model=VISION_MODEL, *, target=None):
+    target = target or _target_label(prompt)
+    read_text = re.search(r"\bread\b|what (?:does|do) .+ say\b", prompt, re.I)
+    lines = None
+    if target or read_text:
+        try:
+            lines, size = await _ocr(image)
+        except (ImportError, OSError, RuntimeError) as error:
+            print(f"[Vision] OCR unavailable: {error}")
+        if lines is not None:
+            if target:
+                found = _find_label(lines, size, target)
+                if found:
+                    return found
+                # Exact label lookups should report what OCR actually recognized.
+                if re.search(r'\b(?:text|label|button)\b|["“]', prompt, re.I):
+                    return f'I could not read a label matching "{target}" on this screen.'
+            elif read_text:
+                if re.search(r"\b(?:error|warning)\b", prompt, re.I):
+                    indices = {j for i, line in enumerate(lines) if re.search(
+                        r"\berror\b|\bwarning\b|failed|exception", line.text, re.I)
+                               for j in (i, i + 1)}
+                    selected = [line for i, line in enumerate(lines) if i in indices]
+                    if selected:
+                        return _excerpt(selected)
+                elif lines:
+                    return _excerpt(lines)
+    png = await asyncio.to_thread(_png, image)
+    try:
+        answer = await _describe_with_ollama(png, prompt, model)
+        if answer:
+            return answer
+    except (aiohttp.ClientError, asyncio.TimeoutError, ValueError) as error:
+        print(f"[Vision] Local Ollama unavailable: {type(error).__name__}")
+
+    try:
+        answer = await _describe_locally(png, prompt)
+        if answer:
+            return answer
+    except (asyncio.TimeoutError, OSError, RuntimeError, ValueError) as error:
+        print(f"[Vision] Local image model unavailable: {error}")
+    if lines is None:
+        try:
+            lines, _ = await _ocr(image)
+        except (ImportError, OSError, RuntimeError):
+            lines = []
+    excerpt = _excerpt(lines)
+    if excerpt:
+        return "Image description is unavailable. The visible text includes: " + excerpt
+    return "I couldn't read text or get a visual description. Check the local vision model setup."
+
+
+async def analyze_screen(prompt="Describe what is visible on this screen.", model=VISION_MODEL, *, target=None):
+    try:
+        image = await asyncio.to_thread(_grab_screen)
+    except OSError as error:
+        print(f"[Vision] Capture failed: {error}")
+        return "I couldn't capture the current screen."
+    return await analyze_image(image, prompt, model, target=target)
 
 
 async def look_at_screen():
-    """
-    Convenience function: capture and describe the screen.
-    Returns a spoken-ready description.
-    """
-    description = await analyze_screen(
-        "Describe what is currently displayed on the screen. What applications or windows are open? What is the user looking at?"
-    )
-    return description
+    return await analyze_screen()
 
 
 async def find_text_on_screen(target_text=None):
-    """
-    Look at the screen and optionally search for specific text.
-    If target_text is provided, look for it. Otherwise, read any visible text.
-    """
     if target_text:
-        prompt = f"Look at this screen carefully. Can you find the text or element '{target_text}'? Describe where it is and what's around it."
-    else:
-        prompt = "Read all visible text on this screen. List the key information concisely."
-    
-    return await analyze_screen(prompt=prompt)
+        return await analyze_screen(f'Find the label "{target_text}" on the screen.', target=target_text)
+    return await analyze_screen("Read the visible text on the screen.")
 
 
 if __name__ == "__main__":
-    async def test():
-        result = await look_at_screen()
-        print(f"\nFinal: {result}")
-    asyncio.run(test())
+    print(asyncio.run(look_at_screen()))

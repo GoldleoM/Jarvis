@@ -5,6 +5,7 @@ Requires websocket-client for the test driver. The test opens the HUD and plays
 its replies, then asks Jarvis to quit. Only the test process enables Qt debugging.
 """
 import json
+import argparse
 import os
 from pathlib import Path
 import socket
@@ -30,7 +31,7 @@ def wait_for(description, check, timeout=60):
     raise TimeoutError(description)
 
 
-def exercise(app, port):
+def exercise(app, port, test_tools=False):
     def find_page():
         if app.poll() is not None:
             raise RuntimeError(f"Launcher exited with {app.returncode}")
@@ -63,6 +64,13 @@ def exercise(app, port):
     def send(text):
         js(f"chatInput.value = {json.dumps(text)}; "
            "chatInput.dispatchEvent(new KeyboardEvent('keypress', {key:'Enter', bubbles:true}));")
+
+    def check_reply(command, expected):
+        start = js("chatHistory.length")
+        send(command)
+        wait_for(f"Answered {command!r}", lambda: js(
+            f"chatHistory.slice({start}).some(e => e.speaker === 'Jarvis' && e.text.includes({json.dumps(expected)}))"))
+        wait_for("Ready for the next command", lambda: js("backendState === 'idle'"))
 
     try:
         wait_for("Connected Qt to the page", lambda: js("typeof backend !== 'undefined' && !!backend", loading=True))
@@ -116,6 +124,23 @@ def exercise(app, port):
         assert js("historyModal.style.display === 'flex' && historyContent.innerText.includes('what time is it')")
         js("closeHistoryBtn.click()")
         wait_for("Returned to idle after the reply", lambda: js("backendState === 'idle'"))
+        if test_tools:
+            check_reply("what's fifteen percent of 80", "The answer is 12.")
+            check_reply("set a timer", "How long")
+            check_reply("two minutes and thirty seconds", "2 minutes and 30 seconds")
+            # Give OCR a known label on the real desktop without changing user documents.
+            import tkinter as tk
+            fixture = tk.Tk()
+            try:
+                fixture.overrideredirect(True)
+                fixture.geometry("+30+50")
+                fixture.attributes("-topmost", True)
+                tk.Label(fixture, text="Lunar Orchard", font=("Segoe UI", 36),
+                         bg="white", fg="black", padx=20, pady=12).pack()
+                fixture.update()
+                check_reply("Find the Lunar Orchard label on my screen", 'I found "Lunar Orchard"')
+            finally:
+                fixture.destroy()
         send("goodbye")
     finally:
         client.close()
@@ -124,6 +149,9 @@ def exercise(app, port):
 
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--tools", action="store_true", help="Also exercise arithmetic, timer follow-up and live OCR")
+    args = parser.parse_args()
     launcher = Path(__file__).resolve().parents[1] / "Jarvis.exe"
     with socket.socket() as listener:
         listener.bind(("127.0.0.1", 0))
@@ -132,7 +160,7 @@ if __name__ == "__main__":
     with tempfile.TemporaryDirectory() as cwd:
         app = subprocess.Popen([str(launcher)], cwd=cwd, env=env)
         try:
-            exercise(app, port)
+            exercise(app, port, args.tools)
         finally:
             if app.poll() is None:
                 for child in reversed(psutil.Process(app.pid).children(recursive=True)):

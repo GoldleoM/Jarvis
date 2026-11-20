@@ -14,7 +14,13 @@ scipy
 # Intent Routing & Language Models
 semantic-router
 transformers
+Pillow
+torchvision
 huggingface_hub
+winrt-Windows.Media.Ocr; sys_platform == 'win32'
+winrt-Windows.Graphics.Imaging; sys_platform == 'win32'
+winrt-Windows.Globalization; sys_platform == 'win32'
+winrt-Windows.Storage.Streams; sys_platform == 'win32'
 
 # Desktop Automation & Skills
 pyautogui

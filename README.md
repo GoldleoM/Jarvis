@@ -35,6 +35,20 @@ Microphone → Silero VAD → Wake Word Detection → faster-whisper STT
 - Confirmation flow for destructive actions (shutdown, restart, sleep)
 - Persistent memory for user preferences and context
 
+## Tools and screen questions
+
+Type or say commands such as “open my Downloads folder”, “what's fifteen percent of 80?”, or “start a timer for two minutes and thirty seconds”. If you say “set a timer” first, Jarvis asks for the duration. A request to shut down the computer still requires a separate confirmation.
+
+“Read the text on my screen” and “find the Save changes button on my screen” use Windows OCR on a fresh capture of the primary display. Jarvis reports a matching label's approximate location. “What color is the circle on my screen?” passes the question and image to a local visual model. “Take a screenshot” still uses the existing screenshot shortcut.
+
+For image descriptions, Jarvis first tries Ollama's `moondream:latest` on the local machine. It can also run SmolVLM locally using the existing PyTorch environment. To prepare that fallback on another installation, run the following once in the Jarvis environment. The download is about 0.5 GB. [SmolVLM model card](https://huggingface.co/HuggingFaceTB/SmolVLM-256M-Instruct)
+
+```powershell
+python -c "from huggingface_hub import snapshot_download; snapshot_download('HuggingFaceTB/SmolVLM-256M-Instruct', allow_patterns=['*.json','*.safetensors','*.jinja','*.txt'], ignore_patterns=['onnx/*','runs/*'])"
+```
+
+Screen requests run on demand. The normal command path keeps the capture in memory, and vision answers are excluded from the command history sent to OpenCode. Windows needs an installed OCR language for text recognition.
+
 ## Tech Stack
 
 | Layer | Technology |
@@ -99,7 +113,7 @@ Use **Alt+Space** to hide or show the overlay. The tray menu also offers **Show 
 
 To start the same UI from a terminal, run `python jarvis_ui.py`. To rebuild the checked-in executable, run `.\launcher\build.ps1` in PowerShell on Windows.
 
-Run the speech and synthesis tests with `python -m unittest discover -s tests -v`. For the desktop integration test, install `websocket-client` and `Pillow` in the test environment, close other Jarvis instances, and run `python tests/windows_launch_smoke.py`. It opens the executable, checks the orb's position and visibility on the Windows desktop with the default shortcut, tests the microphone, sends a time request, checks history, and quits.
+Run `python -m unittest discover -s tests -v` for speech, synthesis, routing, timer follow-ups, confirmation handling, OCR and visual inference. The offline image inference test uses the cached model described above. For the desktop integration test, install `websocket-client` and `Pillow` in the test environment, close other Jarvis instances, and run `python tests/windows_launch_smoke.py --tools`. It tests the executable, orb, shortcut, microphone, chat, a timer follow-up, and recognition of a temporary on-screen label before quitting.
 
 ## Project Structure
 

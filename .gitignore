@@ -17,6 +17,7 @@ deps.txt
 models/
 *.wav
 test_*.py
+!/tests/test_tools_and_vision.py
 
 # User-specific data
 contacts.json
