@@ -5,12 +5,13 @@ let orbSpeed = 0.001;
 let targetOrbSpeed = 0.001;
 let orbScale = 1.0;
 let targetScale = 1.0;
-let targetColor = new THREE.Color(0x00ffff);
-let targetEmissive = new THREE.Color(0x0088ff);
-let targetLight = new THREE.Color(0x00ffff);
+let targetColor, targetEmissive, targetLight;
 let webGLSupported = false;
 
 try {
+    targetColor = new THREE.Color(0x00ffff);
+    targetEmissive = new THREE.Color(0x0088ff);
+    targetLight = new THREE.Color(0x00ffff);
     scene = new THREE.Scene();
     camera = new THREE.PerspectiveCamera(75, 1, 0.1, 1000);
     renderer = new THREE.WebGLRenderer({ alpha: true, antialias: true });
@@ -62,7 +63,7 @@ try {
     animate();
 } catch (e) {
     console.error("WebGL failed to initialize:", e);
-    document.getElementById('status-text').innerText = "WebGL Not Supported";
+    document.getElementById('canvas-container').classList.add('fallback-orb');
 }
 
 // --- Backend Integration ---
@@ -170,7 +171,7 @@ if (saveSettingsBtn) {
     saveSettingsBtn.addEventListener('click', () => {
         const s = {
             WAKE_WORD: document.getElementById('setting-wake-word').value,
-            MIC_INDEX: document.getElementById('setting-mic-index').value === '' ? null : parseInt(document.getElementById('setting-mic-index').value),
+            MIC_INDEX: Number(document.getElementById('setting-mic-index').value) < 0 ? null : parseInt(document.getElementById('setting-mic-index').value),
             OPENCODE_MODEL: document.getElementById('setting-opencode-model').value,
             OPENCODE_PROVIDER: document.getElementById('setting-opencode-provider').value,
             WHISPER_MODEL: document.getElementById('setting-whisper-model').value,
@@ -182,9 +183,11 @@ if (saveSettingsBtn) {
             UI_SHORTCUT: document.getElementById('setting-ui-shortcut').value || 'alt+space'
         };
         
-        targetColor.setHex(parseInt(s.ORB_COLOR.replace('#', '0x')));
-        targetEmissive.setHex(parseInt(s.ORB_GLOW.replace('#', '0x')));
-        targetLight.setHex(parseInt(s.ORB_COLOR.replace('#', '0x')));
+        if (webGLSupported) {
+            targetColor.set(s.ORB_COLOR);
+            targetEmissive.set(s.ORB_GLOW);
+            targetLight.set(s.ORB_COLOR);
+        }
         
         if (backend) {
             backend.save_settings(JSON.stringify(s));
@@ -238,6 +241,10 @@ function renderHistory() {
 function sendMaskUpdate() {
     if (!backend) return;
     const rects = [];
+    if (document.getElementById('container').hidden) {
+        backend.update_mask('[]');
+        return;
+    }
     
     if (typeof isDraggingAny !== 'undefined' && isDraggingAny) {
         // Prevent mouse from escaping by locking the whole screen during a drag
@@ -287,6 +294,7 @@ function sendMaskUpdate() {
 
 function updateState(newState, text = "") {
     backendState = newState;
+    chatInput.disabled = newState === 'starting' || newState === 'error';
     if (webGLSupported) {
         if (newState === 'idle') {
             targetColor.setHex(0x00ffff);
@@ -325,7 +333,10 @@ function updateState(newState, text = "") {
         }
     }
     
-    if (newState === 'idle') {
+    if (chatInput.disabled) {
+        updateTextSmoothly(statusText, text);
+        cancelBtn.style.display = 'none';
+    } else if (newState === 'idle') {
         updateTextSmoothly(statusText, text || "ONLINE");
         cancelBtn.style.display = 'none';
         chatInput.placeholder = "Type a command or say Jarvis...";
@@ -415,6 +426,7 @@ function initWebChannel() {
             backend.stateChanged.connect(function(state, text) {
                 updateState(state, text);
             });
+            backend.request_state();
             
             backend.micTestCompleted.connect(function(msg) {
                 const btn = document.getElementById('test-mic-btn');
@@ -452,7 +464,7 @@ function initWebChannel() {
             });
             
             // Initial mask setup once UI is ready
-            setTimeout(sendMaskUpdate, 500);
+            sendMaskUpdate();
         });
     } else {
         console.log("Waiting for QWebChannel transport...");
@@ -485,7 +497,7 @@ let settingsLeft = (window.innerWidth / 2) - 350;
 let settingsTop = (window.innerHeight / 2) - 250;
 
 document.addEventListener('mousedown', (e) => {
-    if (e.target.tagName !== 'INPUT' && e.target.tagName !== 'BUTTON' && e.target.tagName !== 'SELECT' && e.target.tagName !== 'LABEL') {
+    if (!e.target.closest('input, textarea, button, select, label')) {
         if (settingsModal && settingsModal.style.display === 'flex' && settingsModal.contains(e.target)) {
             // Prevent dragging if clicking inside the settings content area
             const contentArea = settingsModal.querySelector('.settings-content');

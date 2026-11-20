@@ -29,7 +29,7 @@ WHISPER_COMPUTE_TYPE = "float32" # Low power mode: reduced precision, much less 
 TTS_ENGINE = "piper"  # "piper" or "kokoro"
 
 # -- Piper (fallback) --
-PIPER_PATH = r"C:\Users\GoldleoM\AppData\Roaming\Python\Python310\Scripts\piper.exe"
+PIPER_PATH = "piper"  # On PATH, or set an absolute path to a standalone Piper executable.
 PIPER_MODEL = r"models\en_GB-alba-medium.onnx"
 
 # -- Kokoro (lightning fast) --

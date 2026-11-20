@@ -1,55 +1,50 @@
 import sys
 import os
 import asyncio
+import traceback
+import faulthandler
 
-# Fix print() crashing in pythonw by redirecting to a log file
+# pythonw has no console. Libraries also need a real file's encoding and fileno.
 log_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "jarvis.log")
-log_file = open(log_path, "a", encoding="utf-8")
-
-class LogStream:
-    def write(self, text):
-        try:
-            log_file.write(text)
-            log_file.flush()
-        except:
-            pass
-    def flush(self):
-        try:
-            log_file.flush()
-        except:
-            pass
-    def isatty(self):
-        return False
-
-if sys.stdout is None:
-    sys.stdout = LogStream()
-if sys.stderr is None:
-    sys.stderr = LogStream()
+if sys.stdout is None or sys.stderr is None:
+    log_file = open(log_path, "a", encoding="utf-8", buffering=1)
+    if sys.stdout is None:
+        sys.stdout = log_file
+    if sys.stderr is None:
+        sys.stderr = log_file
+    faulthandler.enable(file=log_file)
 
 from PySide6.QtWidgets import QApplication, QMainWindow, QSystemTrayIcon, QMenu
 from PySide6.QtWebEngineWidgets import QWebEngineView
 from PySide6.QtWebChannel import QWebChannel
-from PySide6.QtCore import QObject, Slot, Signal, Qt, QUrl, QTimer
-from PySide6.QtGui import QColor, QIcon, QAction, QPixmap
+from PySide6.QtCore import QObject, Slot, Signal, Qt, QUrl, QCoreApplication, QEvent
+from PySide6.QtGui import QColor, QIcon, QAction, QPixmap, QRegion
 
 import qasync
-
-# Import the existing backend
-from main import VoiceEngine
 
 class BackendBridge(QObject):
     stateChanged = Signal(str, str) # state, text
     micTestCompleted = Signal(str)
 
-    def __init__(self, engine):
+    def __init__(self):
         super().__init__()
-        self.engine = engine
-        self.window = None  # Will be set later
+        self.engine = None
+        self.window = None
+        self.state = ("starting", "LOADING VOICE ENGINE…")
+
+    @Slot(str, str)
+    def publish_state(self, state, text):
+        self.state = (state, text)
+        self.stateChanged.emit(state, text)
+
+    @Slot()
+    def request_state(self):
+        self.stateChanged.emit(*self.state)
 
     @Slot(str)
     def receive_input(self, text):
         print(f"[UI] Input received: {text}")
-        if self.engine and self.engine.loop:
+        if self.engine and self.engine.loop and self.state[0] not in ("starting", "error"):
             # Artificially prepend the wake word so text commands process instantly, UNLESS we are already actively listening/taking notes
             if not self.engine.detect_wake_word(text.lower()):
                 if not getattr(self.engine, 'is_active', False) and not getattr(self.engine, 'notes_mode', False):
@@ -216,7 +211,8 @@ class BackendBridge(QObject):
             # 3. Hot Reload the engine
             if self.engine and hasattr(self.engine, "hot_reload") and self.engine.loop:
                 # Fire and forget hot_reload
-                asyncio.run_coroutine_threadsafe(self.engine.hot_reload(s), self.engine.loop)
+                if self.state[0] not in ("starting", "error"):
+                    asyncio.run_coroutine_threadsafe(self.engine.hot_reload(s), self.engine.loop)
                 
             # 4. Update the global UI hotkey live
             if self.window and hasattr(self.window, "update_hotkey"):
@@ -234,7 +230,6 @@ class BackendBridge(QObject):
     @Slot(str)
     def update_mask(self, rects_json):
         import json
-        from PySide6.QtGui import QRegion
         if self.window:
             try:
                 rects = json.loads(rects_json)
@@ -276,14 +271,9 @@ class TransparentWindow(QMainWindow):
         self.setWindowFlags(Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Tool)
         self.setAttribute(Qt.WA_TranslucentBackground, True)
         
-        # Force keep-on-top timer to prevent glitching behind apps
-        self.top_timer = QTimer(self)
-        self.top_timer.timeout.connect(self.raise_)
-        self.top_timer.start(500)
-        
-        # Resize and position full screen
-        screen = QApplication.primaryScreen().geometry()
-        self.setGeometry(0, 0, screen.width(), screen.height())
+        self.setGeometry(QApplication.primaryScreen().geometry())
+        # Until the page supplies its controls' bounds, let clicks reach the desktop.
+        self.setMask(QRegion(-1, -1, 1, 1))
 
         # WebEngine setup
         self.browser = QWebEngineView(self)
@@ -292,7 +282,7 @@ class TransparentWindow(QMainWindow):
         self.browser.setAttribute(Qt.WA_TranslucentBackground, True)
         self.browser.page().setBackgroundColor(QColor(0, 0, 0, 0)) # transparent background
         
-        self.channel = QWebChannel()
+        self.channel = QWebChannel(self)
         self.channel.registerObject("backend", self.bridge)
         self.browser.page().setWebChannel(self.channel)
         
@@ -315,7 +305,7 @@ class TransparentWindow(QMainWindow):
             
         self.setup_global_hotkey()
         
-        menu = QMenu()
+        menu = QMenu(self)
         show_action = QAction("Show UI", self)
         show_action.triggered.connect(self.show_ui)
         hide_action = QAction("Hide UI", self)
@@ -344,26 +334,22 @@ class TransparentWindow(QMainWindow):
     @Slot()
     def show_ui(self):
         self.browser.page().runJavaScript("""
-            document.getElementById('hud-container').style.display = 'flex';
+            document.getElementById('container').hidden = false;
             if (typeof sendMaskUpdate === 'function') sendMaskUpdate();
         """)
 
     @Slot()
     def hide_ui(self):
         self.browser.page().runJavaScript("""
-            document.getElementById('hud-container').style.display = 'none';
+            document.getElementById('container').hidden = true;
             if (typeof sendMaskUpdate === 'function') sendMaskUpdate();
         """)
         
     @Slot()
     def toggle_ui(self):
         self.browser.page().runJavaScript("""
-            var el = document.getElementById('hud-container');
-            if (el.style.display === 'none' || el.style.display === '') {
-                el.style.display = 'flex';
-            } else {
-                el.style.display = 'none';
-            }
+            var el = document.getElementById('container');
+            el.hidden = !el.hidden;
             if (typeof sendMaskUpdate === 'function') sendMaskUpdate();
         """)
 
@@ -382,14 +368,15 @@ class TransparentWindow(QMainWindow):
         self.update_hotkey(shortcut)
 
     def update_hotkey(self, new_shortcut):
-        import keyboard
         if self.current_shortcut:
             try:
+                import keyboard
                 keyboard.remove_hotkey(self.current_shortcut)
             except Exception as e:
                 print(f"[UI] Could not remove old hotkey: {e}")
         self.current_shortcut = new_shortcut
         try:
+            import keyboard
             # We emit the signal from the keyboard listener thread which wakes up Qt's event loop
             keyboard.add_hotkey(self.current_shortcut, self.toggleUISignal.emit)
             print(f"[UI] Global hotkey registered: {self.current_shortcut}")
@@ -434,60 +421,50 @@ class TransparentWindow(QMainWindow):
             print(f"Failed to clear logs: {e}")
 
 
-async def state_monitor(engine, bridge):
-    last_state = None
-    last_text = None
-    while True:
-        try:
-            curr_state = getattr(engine, 'ui_state', 'idle')
-            curr_text = getattr(engine, 'ui_text', 'ONLINE')
-            
-            if curr_state != last_state or curr_text != last_text:
-                last_state = curr_state
-                last_text = curr_text
-                bridge.stateChanged.emit(curr_state, curr_text)
-        except Exception as e:
-            print(f"Monitor error: {e}")
-            
-        await asyncio.sleep(0.1)
+async def run_engine(bridge):
+    def load_engine_class():
+        print("[UI] Loading voice engine dependencies…", flush=True)
+        from main import VoiceEngine
+        return VoiceEngine
 
-async def run_app():
-    # Setup PySide6 integration with asyncio
-    engine = VoiceEngine(debug=False, ui_mode=True)
-    app = QApplication.instance()
-    if app:
-        app.aboutToQuit.connect(engine._cleanup_opencode)
-    bridge = BackendBridge(engine)
-    window = TransparentWindow(bridge)
-    bridge.window = window
-    window.show()
-    
-    # Start the monitor loop
-    asyncio.create_task(state_monitor(engine, bridge))
-    
-    # Start the voice engine
-    asyncio.create_task(engine.run())
+    try:
+        engine_class = await asyncio.to_thread(load_engine_class)
+        engine = engine_class(debug=False, ui_mode=True)
+        bridge.engine = engine
+        engine.on_ui_state = bridge.publish_state
+        await engine.run()
+    except Exception:
+        traceback.print_exc()
+        bridge.publish_state("error", "STARTUP FAILED • OPEN TRAY → VIEW LOGS")
+    finally:
+        if bridge.engine:
+            bridge.engine._cleanup_opencode()
 
 if __name__ == "__main__":
     # Fix WebGL on transparent windows
     QApplication.setAttribute(Qt.AA_ShareOpenGLContexts)
     
-    # Fix DPI warnings
-    os.environ["QT_AUTO_SCREEN_SCALE_FACTOR"] = "1"
-    os.environ["QT_ENABLE_HIGHDPI_SCALING"] = "0"
-    
-    # Allow high refresh rate monitors (144Hz/240Hz) by disabling Chromium's artificial 60fps cap
-    os.environ["QTWEBENGINE_CHROMIUM_FLAGS"] = "--disable-frame-rate-limit"
-    
     app = QApplication(sys.argv)
     app.setApplicationName("Jarvis")
     app.setApplicationDisplayName("Jarvis")
+    app.setQuitOnLastWindowClosed(False)
     loop = qasync.QEventLoop(app)
     asyncio.set_event_loop(loop)
     
     with loop:
-        loop.create_task(run_app())
+        bridge = BackendBridge()
+        window = TransparentWindow(bridge)
+        bridge.window = window
+        window.show()
+        engine_task = loop.create_task(run_engine(bridge))
         try:
             loop.run_forever()
-        except RuntimeError:
-            pass
+        finally:
+            pending = asyncio.all_tasks(loop)
+            for task in pending:
+                task.cancel()
+            if pending:
+                loop.run_until_complete(asyncio.gather(*pending, return_exceptions=True))
+            window.tray.hide()
+            window.deleteLater()
+            QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)

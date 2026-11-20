@@ -3,6 +3,7 @@ import concurrent.futures
 import time as _time
 import re
 import os
+import sys
 import threading
 import logging
 import warnings
@@ -56,9 +57,8 @@ def select_input_device(auto_default=False):
     import config
     configured_mic = getattr(config, "MIC_INDEX", None)
 
-    if auto_default or not sys.stdin.isatty():
+    if auto_default or sys.stdin is None or not sys.stdin.isatty():
         if configured_mic is not None and any(idx == configured_mic for idx, _ in devices):
-            import sounddevice as sd
             sd.default.device = (configured_mic, None)
             print(f"[SUCCESS] Using configured mic [{configured_mic}]: {sd.query_devices(configured_mic)['name']}")
             return configured_mic
@@ -166,6 +166,7 @@ class VoiceEngine:
         self.current_task = None
         self.loop = None
         self.power_monitor = None
+        self.on_ui_state = None
         self._power_switch_lock = threading.Lock()
 
         import config
@@ -219,6 +220,8 @@ class VoiceEngine:
         self.ui_state = state
         if text:
             self.ui_text = text
+        if self.on_ui_state:
+            self.on_ui_state(state, self.ui_text)
 
     # ---------- CALLBACK ----------
 
@@ -845,14 +848,14 @@ class VoiceEngine:
         print("\n--- Audio Setup ---")
 
         # 🔥 Select only valid devices (skip blocking input if in UI mode)
-        select_input_device(auto_default=getattr(self, 'ui_mode', False))
+        mic_index = select_input_device(auto_default=self.ui_mode)
 
         mic = get_current_mic()
         if mic:
             print(f"\n[MIC] Using mic: {mic['name']}")
 
         # 🔥 test input safely
-        has_audio, level = detect_audio_input()
+        has_audio, level = await self.loop.run_in_executor(self.executor, detect_audio_input)
 
         print(f"[LEVEL] Mic level: {level:.6f}")
 
@@ -864,13 +867,11 @@ class VoiceEngine:
         print("-------------------\n")
 
         # 🔥 IMPORTANT: pass selected device to STT if supported
-        import config
-        mic_index = getattr(config, "MIC_INDEX", None)
-        
         if hasattr(self.stt, "set_device"):
             self.stt.set_device(sd.default.device[0])
 
         self.stt.start_listening(self.stt_callback, device_index=mic_index)
+        self._set_ui_state("idle", "ONLINE")
 
         print("Listening for 'Jarvis'...\n")
 
@@ -1042,6 +1043,9 @@ class VoiceEngine:
                 self.queue.task_done()
 
         finally:
+            if self.power_monitor:
+                self.power_monitor.stop()
+            self.tts.stop()
             self.stt.stop_listening()
             self.executor.shutdown(wait=False)
 

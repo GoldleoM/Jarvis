@@ -1,6 +1,7 @@
 # Audio & Speech Recognition
 faster-whisper
 sounddevice
+piper-tts
 numpy
 torch
 torchaudio
