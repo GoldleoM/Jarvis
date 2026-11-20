@@ -133,7 +133,7 @@ def execute_skill(intent_name, text=""):
             return "I ran into an issue focusing that window, sir."
 
     elif intent_name == "type_text":
-        match = re.search(r'(?:type|dictate|write)(?:\s+(?:for me|out|down|this|that|exactly))*\s+(.+)', text.lower(), re.IGNORECASE)
+        match = re.search(r'(?:type|dictate|write)(?:\s+(?:for me|out|down|this|that|exactly))*\s+(.+)', text, re.IGNORECASE)
         content = match.group(1).strip() if match else text.lower().replace("type", "").strip()
         if content:
             import pyautogui
@@ -246,29 +246,8 @@ def execute_skill(intent_name, text=""):
         return "What would you like me to look up?"
 
     elif intent_name == "math":
-        match = re.search(r'(?:calculate|what is|what is the sum of|solve this math)\s+(.+)', text.lower())
-        if match:
-            expression = match.group(1).strip()
-            # Sanitize expression: replace words with operators
-            expression = expression.replace('plus', '+').replace('minus', '-').replace('times', '*').replace('divided by', '/').replace('multiplied by', '*')
-            # Remove anything that isn't a digit or operator
-            clean_expr = re.sub(r'[^0-9+\-*/(). ]', '', expression)
-            try:
-                # safe eval
-                import ast
-                import operator
-                
-                # We can just use a restricted eval since we stripped out bad chars
-                result = eval(clean_expr, {"__builtins__": None}, {})
-                # format result to avoid long decimals if it's an integer
-                if isinstance(result, float) and result.is_integer():
-                    result = int(result)
-                elif isinstance(result, float):
-                    result = round(result, 2)
-                return f"The answer is {result}."
-            except Exception:
-                return "I couldn't calculate that, sir. The math expression seems invalid."
-        return "What would you like me to calculate?"
+        from skills.arithmetic import calculate
+        return calculate(text)
 
     elif intent_name == "joke":
         import requests
@@ -302,17 +281,14 @@ def execute_skill(intent_name, text=""):
         return f"Today is {day_of_week}, {month} {day_num}{suffix}, {year}."
 
     elif intent_name == "timer":
-        match = re.search(r'(?:for|in)\s+(\d+)\s+(second|minute|hour)', text.lower())
-        if match:
-            amount = int(match.group(1))
-            unit = match.group(2)
-            seconds = amount
-            if 'minute' in unit:
-                seconds *= 60
-            elif 'hour' in unit:
-                seconds *= 3600
-                
-            return f"__TIMER__{seconds}__I have set a timer for {amount} {unit}s, sir."
+        from skills.timers import timer_seconds
+        seconds = timer_seconds(text)
+        if seconds:
+            minutes, secs = divmod(seconds, 60)
+            hours, minutes = divmod(minutes, 60)
+            parts = [f"{n} {unit}{'s' if n != 1 else ''}" for n, unit in
+                     ((hours, "hour"), (minutes, "minute"), (secs, "second")) if n]
+            return f"__TIMER__{seconds}__I have set a timer for {' and '.join(parts)}, sir."
         return "__CONTEXT__timer__How long should I set the timer for, sir?"
 
 
@@ -408,15 +384,23 @@ def execute_skill(intent_name, text=""):
             return "I am having trouble connecting to the weather service right now, sir."
             
     elif intent_name == "open_website":
-        match = re.search(r'(?:open|go to|browse to|navigate to|launch)\s+(.+)', text.lower())
+        import webbrowser
+        from urllib.parse import urlsplit
+        match = re.search(r'(?:open|go to|browse to|navigate to|launch)\s+(.+)', text, re.I)
         if match:
             site = match.group(1).strip()
-            site = re.sub(r'\s+(?:website|web page|url|link)$', '', site).strip()
-            if '.' not in site:
-                site = f"{site}.com"
-                
-            os.system(f"start https://{site}")
-            return f"Opening {site}, sir."
+            site = re.sub(r'\s+(?:website|web page|url|link|please)$', '', site, flags=re.I).strip().rstrip(".,!")
+            if re.fullmatch(r"[\w-]+", site):
+                site += ".com"
+            url = site if "://" in site else "https://" + site
+            try:
+                parsed = urlsplit(url)
+                if parsed.scheme in {"https", "http"} and parsed.hostname and not re.search(r"\s", url):
+                    if webbrowser.open(url):
+                        return f"Opening {site}, sir."
+                    return "I couldn't open the default browser."
+            except ValueError:
+                pass
         return "Which website would you like me to open?"
 
     return None

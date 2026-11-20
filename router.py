@@ -1,5 +1,5 @@
 import os
-import sys
+import re
 
 # Optional: suppress transformers logging spam
 os.environ["TRANSFORMERS_VERBOSITY"] = "error"
@@ -8,6 +8,58 @@ from semantic_router import Route
 from semantic_router.encoders import HuggingFaceEncoder
 from semantic_router.routers import SemanticRouter
 from skills import system_skills, app_skills
+from skills.arithmetic import expression
+
+SCREEN_REFERENCE = re.compile(r"\b(?:(?:my|the|this|current) (?:screen|display|monitor)|on[- ]screen)\b")
+
+
+# Resolve overlapping commands before using the embedding model for paraphrases.
+def direct_intent(cmd):
+    if expression(cmd) is not None:
+        return "math"
+    if re.fullmatch(r"(?:take|grab|capture) (?:a |the )?(?:screen ?shot|screen)|screenshot(?: the screen)?", cmd):
+        return "take_screenshot"
+    if re.fullmatch(r"(?:what (?:can|do) you see|look at this|what windows are open|what am i looking at)", cmd):
+        return "vision_screen"
+    if SCREEN_REFERENCE.search(cmd) and re.match(
+        r"^(?:look at|describe|read|analyse|analyze|summarize|find|locate|look for|search for|where|"
+        r"what(?:'s| is| are| does| color| colour)|which|is there|do you see|see if|tell me what|see)\b", cmd
+    ):
+        return "vision_screen"
+    if re.match(r"(?:start|set)(?: up)? (?:an? |the )?(?:timer\b|[\w .-]+? timer\b)|start (?:a )?countdown\b", cmd):
+        return "timer"
+    if re.match(r"(?:start (?:taking notes|typing what i say)|enter notes mode)\b", cmd):
+        return "notes_mode"
+    if re.fullmatch(r"(?:shut ?down|turn off|restart|reboot|sleep) (?:(?:the|my|this) )?(?:pc|computer|laptop|system)", cmd):
+        return "power_action"
+    if re.fullmatch(r"(?:go to|show) (?:the )?desktop", cmd):
+        return "minimize_windows"
+    if re.fullmatch(r"(?:open|go to|navigate to|show) (?:(?:my|the) )?(?:downloads|documents|desktop|pictures|videos|music)(?: folder)?", cmd):
+        return "open_folder"
+    if re.match(r"(?:open|go to|browse to|navigate to|launch) (?:https?://|(?:[\w-]+\.)+[a-z]{2,}\b)", cmd):
+        return "open_website"
+    windows_tools = {"settings": "open_settings", "windows settings": "open_settings",
+                     "task manager": "open_task_manager", "control panel": "open_control_panel"}
+    if cmd.startswith("open "):
+        tool = windows_tools.get(cmd[5:].removeprefix("the "))
+        if tool:
+            return tool
+    if re.match(r"(?:set |change )?(?:the )?volume(?: (?:to|at|level))* \d", cmd):
+        return "set_volume"
+    if re.match(r"(?:turn |set |lower |raise |increase |decrease ).*\bbrightness\b", cmd):
+        return "set_brightness"
+    for direction, adjective in (("up", "louder"), ("down", "quieter")):
+        if (cmd == f"turn {direction}" or
+            re.match(rf"(?:(?:turn )?(?:it|(?:the )?(?:volume|sound)) {direction}|"
+                     rf"turn {direction} (?:the )?(?:volume|sound)|(?:make it )?{adjective})\b", cmd)):
+            return f"volume_{direction}"
+    for pattern, intent in ((r"(?:open|launch|start) ", "open_app"),
+                            (r"(?:close|shut down|quit|exit) ", "kill_task"),
+                            (r"(?:focus|bring to front|switch to|jump to|go to) ", "focus_app")):
+        if re.match(pattern, cmd):
+            return intent
+    return None
+
 
 class Gatekeeper:
     def __init__(self):
@@ -121,6 +173,7 @@ class Gatekeeper:
             self.get_time_route, self.lock_pc_route, self.battery_route,
             self.power_route, self.notes_mode_route,
             self.minimize_windows_route, self.close_window_route, self.screenshot_route,
+            self.vision_route, self.vision_find_route,
             self.media_play_pause_route, self.media_next_route, self.media_prev_route,
             self.volume_up_route, self.volume_down_route, self.volume_mute_route,
             self.system_stats_route, self.empty_trash_route, self.open_folder_route, self.type_text_route, self.weather_route, self.open_website_route,
@@ -138,52 +191,32 @@ class Gatekeeper:
         self.router = SemanticRouter(encoder=self.encoder, routes=self.routes, auto_sync="local")
 
     def route_command(self, text):
-        text_lower = text.lower()
-        
-        # Hard intercept for volume controls (Semantic Router confuses antonyms)
-        import re
-        if re.search(r'(?:set\s+)?volume(?:\s+(?:to|at|level))?\s+\d+', text_lower):
-            return app_skills.execute_skill("set_volume", text) or system_skills.execute_skill("set_volume", text)
-        if "volume down" in text_lower or "turn down" in text_lower or "quieter" in text_lower:
-            return app_skills.execute_skill("volume_down", text) or system_skills.execute_skill("volume_down", text)
-        if "volume up" in text_lower or "turn up" in text_lower or "louder" in text_lower:
-            return app_skills.execute_skill("volume_up", text) or system_skills.execute_skill("volume_up", text)
+        text_lower = text.casefold().strip().rstrip(".,!?")
+        cmd = re.sub(r"^(?:(?:please|(?:can|could|would) you|i (?:want|need) you to)\s+)+", "", text_lower)
+        cmd = cmd.removesuffix(" please").strip()
+        if re.match(r"(?:do not|don't|never)\b", cmd):
+            return "__IGNORE__"
+        if re.match(r"(?:how (?:do|would|should|can|could) i|should i|what (?:if|happens if)|explain how)\b", cmd):
+            return None
+        explicit = direct_intent(cmd)
+        intent = explicit or self.router(text_lower).name
+        if intent:
+            print(f"[Gatekeeper] Matched intent: {intent}")
+            if intent in {"vision_screen", "vision_find"}:
+                # Only capture when the user refers to the display or asks us to look.
+                if explicit or SCREEN_REFERENCE.search(cmd):
+                    return "__VISION__"
+                return None
 
-        # Hard intercept for app launching
-        import re
-        if re.match(r'^(?:please\s+)?(?:open|launch|start)\s+([a-zA-Z0-9\s]+)', text_lower):
-            print(f"[Gatekeeper] Intercepted app launch command: {text}")
-            res = app_skills.execute_skill("open_app", text)
-            if res:
-                return res
-                
-        # Hard intercept for closing apps
-        if re.match(r'^(?:please\s+)?(?:close|shut down|quit|exit)\s+([a-zA-Z0-9\s]+)', text_lower):
-            print(f"[Gatekeeper] Intercepted app close command: {text}")
-            res = app_skills.execute_skill("kill_task", text)
-            if res:
-                return res
-                
-        # Hard intercept for focusing windows
-        if re.match(r'^(?:please\s+)?(?:focus|bring to front|switch to|jump to|go to)\s+([a-zA-Z0-9\s]+)', text_lower):
-            print(f"[Gatekeeper] Intercepted focus window command: {text}")
-            res = app_skills.execute_skill("focus_app", text)
-            if res:
-                return res
-
-        decision = self.router(text)
-        
-        if decision.name:
-            print(f"[Gatekeeper] Matched intent: {decision.name}")
-            
             # --- INTELLIGENCE LAYER: Context & Conversational Override ---
             action_intents = {
                 "power_action", "clear_clipboard", "empty_trash", "kill_task", 
                 "lock_pc", "restart_engine", "wifi_action", "theme_toggle", 
-                "set_brightness", "open_task_manager"
+                "set_brightness", "open_task_manager", "volume_up", "volume_down",
+                "volume_mute", "set_volume", "open_app", "close_window"
             }
             
-            if decision.name in action_intents:
+            if intent in action_intents:
                 # 1. Check for conversational questions
                 question_patterns = [
                     r'^(should i|why|how|am i|can i|do i|is it|what if|would it|could i|whats|what is)\b',
@@ -193,35 +226,38 @@ class Gatekeeper:
                 is_question = any(re.search(pattern, text_lower) for pattern in question_patterns)
                 
                 # Exceptions where 'can i' or 'do i' actually mean the command
-                if is_question and not re.search(r'^(can you|please|i want to|i need you to)', text_lower):
-                    print(f"[Gatekeeper] Override: Detected conversational inquiry for action '{decision.name}'. Routing to LLM...")
+                if is_question and not re.search(r'^(can you|could you|would you|please|i want to|i need you to)', text_lower):
+                    print(f"[Gatekeeper] Override: Detected conversational inquiry for action '{intent}'. Routing to LLM...")
                     return None
                     
             # 2. Specific intent overrides
-            if decision.name == "clear_clipboard":
+            if intent == "clear_clipboard":
                 if any(word in text_lower for word in ["copy", "save", "write", "logs", "read"]):
                     print(f"[Gatekeeper] Override: Detected 'copy' intent rather than 'clear'. Routing to LLM...")
                     return None
             # -----------------------------------------------------------
             
-            if decision.name == "coding":
+            if intent == "coding":
                 return "__CODING__"
             
-            if decision.name == "ignore_action":
+            if intent == "ignore_action":
                 return "__IGNORE__"
             
-            if decision.name == "sleep_action":
+            if intent == "sleep_action":
                 return "__SLEEP__"
                 
-            if decision.name == "restart_engine":
+            if intent == "restart_engine":
                 return "__RESTART__"
                 
+            if explicit == "kill_task":
+                return app_skills.execute_skill(intent, text)
+
             # Pass text to execute_skill for regex extraction
-            res = system_skills.execute_skill(decision.name, text)
+            res = system_skills.execute_skill(intent, text)
             if res:
                 return res
             
-            res = app_skills.execute_skill(decision.name, text)
+            res = app_skills.execute_skill(intent, text)
             if res:
                 return res
         

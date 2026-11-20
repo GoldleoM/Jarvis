@@ -115,6 +115,13 @@ def get_current_mic():
         return None
 
 
+def confirmed(text):
+    return bool(re.fullmatch(
+        r"(?:yes|yeah|yep|sure|confirm|do it|proceed|go ahead)"
+        r"(?:[, ]+(?:please|do it|go ahead|proceed|confirm))*", text.strip(" .,!?"), re.I
+    ))
+
+
 # ---------- VOICE ENGINE ----------
 
 class VoiceEngine:
@@ -422,7 +429,7 @@ class VoiceEngine:
             self.is_active = False
 
     def detect_wake_word(self, text):
-        return re.search(rf"\b{self.wake_word}\b", text.lower())
+        return re.search(rf"\b{re.escape(self.wake_word)}\b", text, re.I)
 
     def is_interruption(self, text):
         text_lower = text.lower()
@@ -459,7 +466,9 @@ class VoiceEngine:
                 self._set_ui_state("idle", "ONLINE")
                 return
 
-            if clean_text in ["exit", "quit", "stop", "close", "shut down", "goodbye", "close this", "stop there"]:
+            if clean_text in ["exit", "quit", "stop", "close", "shut down", "goodbye", "close this", "stop there"] and not (
+                clean_text == "stop" and (self.pending_context or self.pending_confirmation)
+            ):
                 print("\nShutting down Jarvis...")
                 self._set_ui_state("speaking", "Goodbye, sir.")
                 try:
@@ -511,7 +520,7 @@ class VoiceEngine:
                     text = f"send a whatsapp to {text}"
                     clean_text = text.lower().strip(" ,!?.-")
                 elif action == "whatsapp_confirm":
-                    if any(word in clean_text for word in ["yes", "do it", "confirm", "proceed", "sure", "yeah", "yep"]):
+                    if confirmed(clean_text):
                         self.pending_context = f"whatsapp_msg_{self.pending_contact}"
                         try:
                             await asyncio.wait_for(
@@ -610,7 +619,7 @@ class VoiceEngine:
                     clean_text = text.lower().strip(" ,!?.-")
             # --- STATEFUL CONFIRMATION LOGIC ---
             if self.pending_confirmation:
-                if any(word in clean_text for word in ["yes", "do it", "confirm", "proceed", "sure"]):
+                if confirmed(clean_text):
                     action = self.pending_confirmation
                     self.pending_confirmation = None
                     self.pending_context = None
@@ -649,7 +658,7 @@ class VoiceEngine:
             self.last_active_time = _time.time()
 
             # Check local intent via Semantic Router
-            local_response = await self.loop.run_in_executor(self.executor, self.gatekeeper.route_command, clean_text)
+            local_response = await self.loop.run_in_executor(self.executor, self.gatekeeper.route_command, text)
             
             if local_response == "__IGNORE__":
                 self._set_ui_state("idle", "ONLINE")
@@ -686,7 +695,12 @@ class VoiceEngine:
                 else:
                     os._exit(0)
 
-            if local_response is None or local_response == "__CODING__":
+            if local_response == "__VISION__":
+                from vision import analyze_screen
+                self._set_ui_state("thinking", "LOOKING AT YOUR SCREEN...")
+                # Pixels and model output are answers only. Speak them directly.
+                response = await analyze_screen(text)
+            elif local_response is None or local_response == "__CODING__":
                 # Delegate to Heavy Coding AI (OpenCode)
                 from agent_runner import run_opencode_task
                 try:
@@ -1009,9 +1023,10 @@ class VoiceEngine:
                     self.last_active_time = _time.time()
 
                     command = re.split(
-                        rf"\b{self.wake_word}\b",
-                        text_lower,
-                        maxsplit=1
+                        rf"\b{re.escape(self.wake_word)}\b",
+                        text,
+                        maxsplit=1,
+                        flags=re.I,
                     )[1].strip(" ,!?.")
 
                     if command:

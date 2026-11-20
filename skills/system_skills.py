@@ -1,9 +1,45 @@
 import datetime
 import os
+import re
+import subprocess
 try:
     import psutil
 except ImportError:
     psutil = None
+
+def _brightness(text):
+    match = re.search(r"\b(\d{1,3})(?:\s*%|\b)", text)
+    lower = re.search(r"\b(?:lower|decrease|dim|down)\b", text, re.I)
+    raise_level = re.search(r"\b(?:raise|increase|brighten|up)\b", text, re.I)
+    relative = (lower or raise_level) and not re.search(r"\bto\s+\d", text, re.I)
+    if relative:
+        step = int(match[1]) if match else 10
+        change = -step if lower else step
+        level = f"[Math]::Max(0, [Math]::Min(100, ([int]$monitor.CurrentBrightness + {change})))"
+    elif match:
+        level = str(min(100, int(match[1])))
+    else:
+        return "What percentage should I set the brightness to?"
+    script = (
+        "$ErrorActionPreference='Stop'; "
+        "$monitor=Get-CimInstance -Namespace root/WMI -ClassName WmiMonitorBrightness "
+        "| Where-Object Active | Select-Object -First 1; "
+        "if (!$monitor) { throw 'No active monitor' }; "
+        "$device=Get-CimInstance -Namespace root/WMI -ClassName WmiMonitorBrightnessMethods "
+        "| Where-Object InstanceName -eq $monitor.InstanceName | Select-Object -First 1; "
+        f"$level={level}; "
+        "$result=Invoke-CimMethod -InputObject $device -MethodName WmiSetBrightness "
+        "-Arguments @{Brightness=[byte]$level; Timeout=[uint32]1}; "
+        "if ($result.ReturnValue -ne 0) { throw 'Monitor rejected change' }; Write-Output $level"
+    )
+    try:
+        result = subprocess.run(["powershell", "-NoProfile", "-NonInteractive", "-Command", script],
+                                capture_output=True, text=True, timeout=8, check=True,
+                                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+        return f"Screen brightness set to {int(result.stdout.strip())} percent."
+    except (OSError, ValueError, subprocess.SubprocessError):
+        return "I couldn't change the brightness on this display."
+
 
 def execute_skill(intent_name, text=""):
     if intent_name == "get_time":
@@ -45,7 +81,7 @@ def execute_skill(intent_name, text=""):
 
     elif intent_name == "open_folder":
         import re
-        match = re.search(r'open\s+(?:my\s+)?(?:the\s+)?(downloads|documents|pictures|desktop|music|videos)(?:\s+folder)?', text.lower())
+        match = re.search(r'(?:open|go to|navigate to|show)\s+(?:my\s+)?(?:the\s+)?(downloads|documents|pictures|desktop|music|videos)(?:\s+folder)?', text.lower())
         if match:
             folder = match.group(1).strip()
             # On Windows, these are standard shell folders
@@ -66,9 +102,9 @@ def execute_skill(intent_name, text=""):
     elif intent_name == "power_action":
         if "sleep" in text.lower():
             return "__CONFIRM__sleep_pc__Are you sure you want to put the computer to sleep?"
-        elif "restart" in text.lower():
+        elif "restart" in text.lower() or "reboot" in text.lower():
             return "__CONFIRM__restart_pc__Are you sure you want to restart the computer?"
-        elif "shut down" in text.lower() or "turn off" in text.lower():
+        elif "shut down" in text.lower() or "shutdown" in text.lower() or "turn off" in text.lower():
             return "__CONFIRM__shutdown_pc__Are you sure you want to shut down the computer?"
         return "Which power action did you want me to perform?"
 
@@ -131,16 +167,7 @@ def execute_skill(intent_name, text=""):
         return f"Switched the Windows system theme to {mode} mode, sir."
 
     elif intent_name == "set_brightness":
-        import re
-        match = re.search(r'(\d+)', text.lower())
-        if match:
-            level = int(match.group(1))
-            if level < 0: level = 0
-            if level > 100: level = 100
-            ps_cmd = f"(Get-WmiObject -Namespace root/wmi -Class WmiMonitorBrightnessMethods).WmiSetBrightness(1,{level})"
-            os.system(f'powershell -Command "{ps_cmd}"')
-            return f"Screen brightness set to {level} percent. Note that this may only apply to built-in laptop displays."
-        return "What percentage should I set the brightness to?"
+        return _brightness(text)
 
     elif intent_name == "minimize_windows":
         import pyautogui
