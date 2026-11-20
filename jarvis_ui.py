@@ -1,8 +1,11 @@
 import sys
 import os
 import asyncio
+import ctypes
+from ctypes import wintypes
 import traceback
 import faulthandler
+from pathlib import Path
 
 # pythonw has no console. Libraries also need a real file's encoding and fileno.
 log_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "jarvis.log")
@@ -17,7 +20,7 @@ if sys.stdout is None or sys.stderr is None:
 from PySide6.QtWidgets import QApplication, QMainWindow, QSystemTrayIcon, QMenu
 from PySide6.QtWebEngineWidgets import QWebEngineView
 from PySide6.QtWebChannel import QWebChannel
-from PySide6.QtCore import QObject, Slot, Signal, Qt, QUrl, QCoreApplication, QEvent
+from PySide6.QtCore import QObject, Slot, Signal, Qt, QUrl, QCoreApplication, QEvent, QLibraryInfo, qInstallMessageHandler
 from PySide6.QtGui import QColor, QIcon, QAction, QPixmap, QRegion
 
 import qasync
@@ -259,6 +262,7 @@ class WebPage(QWebEnginePage):
 
 class TransparentWindow(QMainWindow):
     toggleUISignal = Signal()
+    hotkey_id = 1
 
     def __init__(self, bridge):
         super().__init__()
@@ -279,6 +283,10 @@ class TransparentWindow(QMainWindow):
         self.browser = QWebEngineView(self)
         self.page = WebPage(self.browser)
         self.browser.setPage(self.page)
+        self.page.loadFinished.connect(lambda ok: print(f"[UI] HUD page loaded: {ok}"))
+        self.page.renderProcessTerminated.connect(
+            lambda reason, code: print(f"[UI] Renderer exited: {reason.name} ({code})")
+        )
         self.browser.setAttribute(Qt.WA_TranslucentBackground, True)
         self.browser.page().setBackgroundColor(QColor(0, 0, 0, 0)) # transparent background
         
@@ -368,20 +376,44 @@ class TransparentWindow(QMainWindow):
         self.update_hotkey(shortcut)
 
     def update_hotkey(self, new_shortcut):
-        if self.current_shortcut:
-            try:
-                import keyboard
-                keyboard.remove_hotkey(self.current_shortcut)
-            except Exception as e:
-                print(f"[UI] Could not remove old hotkey: {e}")
-        self.current_shortcut = new_shortcut
+        if new_shortcut == self.current_shortcut:
+            return
         try:
             import keyboard
-            # We emit the signal from the keyboard listener thread which wakes up Qt's event loop
-            keyboard.add_hotkey(self.current_shortcut, self.toggleUISignal.emit)
+            if sys.platform == "win32":
+                # Receive WM_HOTKEY on the Qt thread. No Python keyboard hook
+                # or background callback survives the window on shutdown.
+                modifiers = {"alt": 1, "ctrl": 2, "control": 2, "shift": 4, "win": 8, "windows": 8}
+                keys = [key.strip().lower() for key in new_shortcut.split("+")]
+                mod = 0x4000  # MOD_NOREPEAT
+                for key in keys[:-1]:
+                    mod |= modifiers[key]
+                scan = keyboard.key_to_scan_codes(keys[-1])[0]
+                user32 = ctypes.WinDLL("user32", use_last_error=True)
+                vk = -scan if scan < 0 else user32.MapVirtualKeyW(scan, 1)
+                hwnd = wintypes.HWND(self.winId())
+                next_id = 2 if self.hotkey_id == 1 else 1
+                if not user32.RegisterHotKey(hwnd, next_id, mod, vk):
+                    raise ctypes.WinError(ctypes.get_last_error())
+                if self.current_shortcut:
+                    user32.UnregisterHotKey(hwnd, self.hotkey_id)
+                self.hotkey_id = next_id
+            else:
+                if self.current_shortcut:
+                    keyboard.remove_hotkey(self.current_shortcut)
+                keyboard.add_hotkey(new_shortcut, self.toggleUISignal.emit)
+            self.current_shortcut = new_shortcut
             print(f"[UI] Global hotkey registered: {self.current_shortcut}")
         except Exception as e:
-            print(f"[UI] Failed to register global hotkey '{self.current_shortcut}': {e}")
+            print(f"[UI] Failed to register global hotkey '{new_shortcut}': {e}")
+
+    def nativeEvent(self, event_type, message):
+        if sys.platform == "win32":
+            msg = wintypes.MSG.from_address(int(message))
+            if msg.message == 0x0312 and msg.wParam == self.hotkey_id:  # WM_HOTKEY
+                self.toggle_ui()
+                return True, 0
+        return super().nativeEvent(event_type, message)
         
     def restart_app(self):
         import sys
@@ -440,7 +472,26 @@ async def run_engine(bridge):
         if bridge.engine:
             bridge.engine._cleanup_opencode()
 
+def configure_webengine_runtime():
+    if sys.platform != "win32":
+        return
+    # Conda puts Qt 6's renderer in Library/lib/qt6 and its DLLs in
+    # Library/bin. The sandboxed renderer needs an inherited DLL directory.
+    helpers = Path(QLibraryInfo.path(QLibraryInfo.LibraryPath.LibraryExecutablesPath))
+    if helpers.parts[-2:] == ("lib", "qt6"):
+        dlls = helpers.parents[1] / "bin"
+        if (dlls / "Qt6WebEngineCore.dll").is_file():
+            kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+            kernel.SetDllDirectoryW.argtypes = [ctypes.c_wchar_p]
+            if not kernel.SetDllDirectoryW(str(dlls)):
+                raise ctypes.WinError(ctypes.get_last_error())
+
+
 if __name__ == "__main__":
+    print(f"[UI] Starting Jarvis with {sys.executable}", flush=True)
+    if sys.stderr is globals().get("log_file"):
+        qInstallMessageHandler(lambda level, context, message: print(f"[Qt] {message}", file=sys.stderr))
+    configure_webengine_runtime()
     # Fix WebGL on transparent windows
     QApplication.setAttribute(Qt.AA_ShareOpenGLContexts)
     
@@ -465,6 +516,8 @@ if __name__ == "__main__":
                 task.cancel()
             if pending:
                 loop.run_until_complete(asyncio.gather(*pending, return_exceptions=True))
+            print("[UI] Engine tasks stopped")
             window.tray.hide()
             window.deleteLater()
             QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
+    print("[UI] Shutdown complete")

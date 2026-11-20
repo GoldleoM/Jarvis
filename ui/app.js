@@ -83,6 +83,7 @@ chatInput.addEventListener('input', function() {
 // --- Fade & Typewriter Variables ---
 let fadeTimeout = null;
 let typewriterInterval = null;
+let statusTimeout = null;
 
 // --- History Logic ---
 const chatHistory = [];
@@ -324,12 +325,16 @@ function updateState(newState, text = "") {
     }
     
     function updateTextSmoothly(el, newText) {
+        clearTimeout(statusTimeout);
         if (el.innerText !== newText) {
             el.classList.add('fade-out');
-            setTimeout(() => {
+            statusTimeout = setTimeout(() => {
                 el.innerText = newText;
                 el.classList.remove('fade-out');
+                sendMaskUpdate();
             }, 300);
+        } else {
+            el.classList.remove('fade-out');
         }
     }
     
