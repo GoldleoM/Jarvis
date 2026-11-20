@@ -487,10 +487,12 @@ let isDraggingAny = false;
 let startX, startY;
 
 const hud = document.getElementById('hud-container');
-let hudLeft = (window.innerWidth - 480) / 2;
-let hudTop = window.innerHeight - 280 - 40;
-hud.style.left = hudLeft + 'px';
-hud.style.top = hudTop + 'px';
+
+function positionDraggedHud(left, top) {
+    hud.style.left = Math.max(0, Math.min(left, window.innerWidth - hud.offsetWidth)) + 'px';
+    hud.style.top = Math.max(0, Math.min(top, window.innerHeight - hud.offsetHeight)) + 'px';
+    hud.style.bottom = 'auto';
+}
 
 let boxLeft = 0;
 let boxTop = 0;
@@ -545,10 +547,7 @@ document.addEventListener('mousemove', (e) => {
     const dy = e.clientY - startY;
     
     if (isDraggingHud) {
-        hudLeft += dx;
-        hudTop += dy;
-        hud.style.left = hudLeft + 'px';
-        hud.style.top = hudTop + 'px';
+        positionDraggedHud(hud.offsetLeft + dx, hud.offsetTop + dy);
     } else if (isDraggingBox) {
         boxLeft += dx;
         boxTop += dy;
@@ -581,15 +580,16 @@ document.addEventListener('mouseup', () => {
     }
 });
 
-// Handle resizing of the history modal to update the Python interaction mask
+// Qt can load the page at a placeholder size before showing the desktop overlay.
+// Recompute the native window region after the browser has laid out its controls.
 const resizeObserver = new ResizeObserver(() => {
-    if (historyModal && historyModal.style.display === 'flex') {
-        sendMaskUpdate();
+    if (hud.style.top && hud.offsetWidth > 0) {
+        positionDraggedHud(hud.offsetLeft, hud.offsetTop);
     }
-    if (settingsModal && settingsModal.style.display === 'flex') {
-        sendMaskUpdate();
-    }
+    sendMaskUpdate();
 });
+resizeObserver.observe(document.documentElement);
+resizeObserver.observe(hud);
 resizeObserver.observe(historyModal);
 resizeObserver.observe(settingsModal);
 

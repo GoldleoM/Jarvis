@@ -19,8 +19,9 @@ body, html {
 
 #hud-container {
     position: absolute;
-    width: 480px;
-    height: 280px;
+    left: max(0px, calc(50% - 240px));
+    bottom: 40px;
+    width: min(480px, 100%);
     display: flex;
     flex-direction: column;
     justify-content: flex-end;

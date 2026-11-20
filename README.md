@@ -99,7 +99,7 @@ Use **Alt+Space** to hide or show the overlay. The tray menu also offers **Show 
 
 To start the same UI from a terminal, run `python jarvis_ui.py`. To rebuild the checked-in executable, run `.\launcher\build.ps1` in PowerShell on Windows.
 
-Run the speech and synthesis tests with `python -m unittest discover -s tests -v`. For the desktop integration test, install `websocket-client` in the test environment, close other Jarvis instances, and run `python tests/windows_launch_smoke.py`. It opens the real executable, tests the microphone, sends a time request, checks history, and quits.
+Run the speech and synthesis tests with `python -m unittest discover -s tests -v`. For the desktop integration test, install `websocket-client` and `Pillow` in the test environment, close other Jarvis instances, and run `python tests/windows_launch_smoke.py`. It opens the executable, checks the orb's position and visibility on the Windows desktop with the default shortcut, tests the microphone, sends a time request, checks history, and quits.
 
 ## Project Structure
 
